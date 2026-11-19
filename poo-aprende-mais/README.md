@@ -1,6 +1,6 @@
-# Plataforma Aprende+ (POO em C#)
+# Plataforma Aprende+ (POO - 2º Bimestre em C#)
 
-Trabalho da disciplina de **Programação Orientada a Objetos** desenvolvido em C#.
+Trabalho do **2º Bimestre** da disciplina de **Programação Orientada a Objetos** desenvolvido em C#.
 
 ## Conceitos aplicados
 
