@@ -105,6 +105,7 @@ namespace SoundGraph
         public bool PossuiLacos { get; init; }
         public bool PossuiArestasParalelas { get; init; }
         public string TipoEstrutural { get; init; } = "";
+        public string TipoEstruturalCurto { get; init; } = "";
         public string Conectividade { get; init; } = "";
         public int ComponentesConexas { get; init; }
         public bool PossuiCiclo { get; init; }
@@ -178,6 +179,41 @@ namespace SoundGraph
         {
             string? canonico = ResolverTituloOuCodigo(tituloOuCodigo);
             return canonico is null ? null : _faixas[canonico];
+        }
+
+        public IReadOnlyList<ConexaoMusical> ObterConexoesDe(string tituloOuCodigo)
+        {
+            string? canonico = ResolverTituloOuCodigo(tituloOuCodigo);
+            return canonico is null
+                ? Array.Empty<ConexaoMusical>()
+                : _listaAdjacencia[canonico];
+        }
+
+        public bool PossuiModoRepeat(string tituloOuCodigo)
+        {
+            string? canonico = ResolverTituloOuCodigo(tituloOuCodigo);
+            if (canonico is null)
+                return false;
+
+            return _listaAdjacencia[canonico]
+                .Any(c => c.Destino.Equals(canonico, StringComparison.OrdinalIgnoreCase));
+        }
+
+        public (bool Ativado, string Mensagem) AlternarModoRepeat(string tituloOuCodigo)
+        {
+            string? canonico = ResolverTituloOuCodigo(tituloOuCodigo);
+            if (canonico is null)
+                return (false, "Música não encontrada.");
+
+            if (PossuiModoRepeat(canonico))
+            {
+                _listaAdjacencia[canonico]
+                    .RemoveAll(c => c.Destino.Equals(canonico, StringComparison.OrdinalIgnoreCase));
+                return (false, $"Modo Repeat desativado em '{canonico}'.");
+            }
+
+            AdicionarConexao(canonico, canonico, 100, TipoRelacionamento.ModoRepeat);
+            return (true, $"Modo Repeat ativado em '{canonico}' (auto-laço criado).");
         }
 
         public bool AdicionarFaixa(
@@ -273,30 +309,8 @@ namespace SoundGraph
             }
 
             string seta = EhDirecionado ? "→" : "↔";
-            string textoPeso = EhPonderado ? $" [Peso: {pesoFinal}%]" : "";
+            string textoPeso = EhPonderado ? $" [{pesoFinal}%]" : "";
             return (true, $"Conexão criada: {orig} {seta} {dest} ({novaConexao.Contexto}){textoPeso}");
-        }
-
-        public bool RemoverConexao(string origemOuCodigo, string destinoOuCodigo, TipoRelacionamento? filtroTipo = null)
-        {
-            string? orig = ResolverTituloOuCodigo(origemOuCodigo);
-            string? dest = ResolverTituloOuCodigo(destinoOuCodigo);
-
-            if (orig is null || dest is null)
-                return false;
-
-            List<ConexaoMusical> listaOrig = _listaAdjacencia[orig];
-            int idx = listaOrig.FindIndex(c =>
-                c.Destino.Equals(dest, StringComparison.OrdinalIgnoreCase) &&
-                (!filtroTipo.HasValue || c.Tipo == filtroTipo.Value));
-
-            if (idx == -1)
-                return false;
-
-            ConexaoMusical removida = listaOrig[idx];
-            listaOrig.RemoveAt(idx);
-            RemoverEspelhoSeNaoDirecionado(orig, dest, removida);
-            return true;
         }
 
         public bool RemoverConexaoPorIndice(string origemOuCodigo, string destinoOuCodigo, int indiceEntrePar)
@@ -713,14 +727,27 @@ namespace SoundGraph
             bool paralelas = PossuiArestasParalelas();
 
             string tipoEstrutural;
+            string tipoCurto;
             if (lacos && paralelas)
+            {
                 tipoEstrutural = "Pseudografo (possui auto-laço/Repeat e arestas paralelas)";
+                tipoCurto = "Multi + Pseudografo";
+            }
             else if (lacos)
+            {
                 tipoEstrutural = "Pseudografo (possui auto-laço / modo Repeat)";
+                tipoCurto = "Pseudografo";
+            }
             else if (paralelas)
+            {
                 tipoEstrutural = "Multigrafo (possui múltiplos relacionamentos entre o mesmo par)";
+                tipoCurto = "Multigrafo";
+            }
             else
+            {
                 tipoEstrutural = "Grafo Simples (sem laços e sem arestas paralelas)";
+                tipoCurto = "Grafo Simples";
+            }
 
             var (conectividade, componentes) = VerificarConectividade();
             int n = _faixas.Count;
@@ -757,6 +784,7 @@ namespace SoundGraph
                 PossuiLacos = lacos,
                 PossuiArestasParalelas = paralelas,
                 TipoEstrutural = tipoEstrutural,
+                TipoEstruturalCurto = tipoCurto,
                 Conectividade = conectividade,
                 ComponentesConexas = componentes,
                 PossuiCiclo = PossuiCiclo(),
@@ -886,7 +914,8 @@ namespace SoundGraph
             return null;
         }
 
-        public (List<string> Caminho, double AfinidadeMedia)? GerarFilaTransicaoDijkstra(string origemOuCodigo, string destinoOuCodigo)
+        public (List<string> Caminho, List<(string Origem, string Destino, string Contexto, int Peso)> Passos, double AfinidadeMedia)?
+            GerarFilaTransicaoDijkstra(string origemOuCodigo, string destinoOuCodigo)
         {
             string? orig = ResolverTituloOuCodigo(origemOuCodigo);
             string? dest = ResolverTituloOuCodigo(destinoOuCodigo);
@@ -895,10 +924,10 @@ namespace SoundGraph
                 return null;
 
             if (orig.Equals(dest, StringComparison.OrdinalIgnoreCase))
-                return (new List<string> { orig }, 100.0);
+                return (new List<string> { orig }, new List<(string, string, string, int)>(), 100.0);
 
             var distancia = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { [orig] = 0 };
-            var anterior = new Dictionary<string, (string? Anterior, int Peso)>(StringComparer.OrdinalIgnoreCase);
+            var anterior = new Dictionary<string, (string? Anterior, string Contexto, int Peso)>(StringComparer.OrdinalIgnoreCase);
             var filaPrioridade = new PriorityQueue<string, int>();
             filaPrioridade.Enqueue(orig, 0);
 
@@ -922,7 +951,7 @@ namespace SoundGraph
                     if (novoCusto < distancia.GetValueOrDefault(c.Destino, int.MaxValue))
                     {
                         distancia[c.Destino] = novoCusto;
-                        anterior[c.Destino] = (atual, pesoValido);
+                        anterior[c.Destino] = (atual, c.Contexto, pesoValido);
                         filaPrioridade.Enqueue(c.Destino, novoCusto);
                     }
                 }
@@ -932,115 +961,28 @@ namespace SoundGraph
                 return null;
 
             var caminho = new List<string> { dest };
-            var pesos = new List<int>();
+            var passos = new List<(string Origem, string Destino, string Contexto, int Peso)>();
             string cursor = dest;
 
             while (anterior.TryGetValue(cursor, out var passo) && passo.Anterior is not null)
             {
-                pesos.Add(passo.Peso);
+                passos.Add((passo.Anterior, cursor, passo.Contexto, passo.Peso));
                 caminho.Add(passo.Anterior);
                 cursor = passo.Anterior;
             }
 
             caminho.Reverse();
-            double afinidadeMedia = pesos.Count == 0 ? 100.0 : pesos.Average();
-            return (caminho, afinidadeMedia);
+            passos.Reverse();
+            double afinidadeMedia = passos.Count == 0 ? 100.0 : passos.Average(p => p.Peso);
+            return (caminho, passos, afinidadeMedia);
         }
 
-        public void ExibirListaAdjacencia()
-        {
-            IReadOnlyList<FaixaMusical> faixas = ObterFaixasOrdenadas();
-            if (faixas.Count == 0)
-            {
-                Console.WriteLine("  Nenhuma música cadastrada.");
-                return;
-            }
-
-            string seta = EhDirecionado ? "→" : "↔";
-            int larguraTitulo = Math.Max(18, faixas.Max(f => f.Titulo.Length));
-
-            foreach (FaixaMusical faixa in faixas)
-            {
-                List<ConexaoMusical> conexoes = _listaAdjacencia[faixa.Titulo];
-                Console.ForegroundColor = ConsoleColor.Cyan;
-                Console.Write($"  {faixa.Titulo.PadRight(larguraTitulo)}");
-                Console.ResetColor();
-                Console.Write($" {seta} ");
-
-                if (conexoes.Count == 0)
-                {
-                    Console.ForegroundColor = ConsoleColor.DarkGray;
-                    Console.WriteLine("(faixa isolada - sem conexões)");
-                    Console.ResetColor();
-                    continue;
-                }
-
-                var formatadas = conexoes.Select(c =>
-                    EhPonderado
-                        ? $"{c.Destino} [{c.Contexto}: {c.Peso}%]"
-                        : $"{c.Destino} ({c.Contexto})");
-
-                Console.WriteLine(string.Join(", ", formatadas));
-            }
-        }
-
-        public void ExibirMatrizAdjacencia()
-        {
-            IReadOnlyList<FaixaMusical> faixas = ObterFaixasOrdenadas();
-            if (faixas.Count == 0)
-            {
-                Console.WriteLine("  Nenhuma música cadastrada.");
-                return;
-            }
-
-            var (codigos, celulas, larguraColuna) = ConstruirDadosMatriz(faixas);
-
-            Console.WriteLine("  Legenda das Faixas:");
-            for (int i = 0; i < faixas.Count; i++)
-                Console.WriteLine($"    {codigos[i],-4} = {faixas[i]}");
-
-            Console.WriteLine();
-            Console.WriteLine(EhPonderado
-                ? "  Valores: '-' = sem conexão | número = peso (%) | 'N*' = arestas paralelas (exibindo maior peso)"
-                : "  Valores: '0' = sem conexão | '1' = conexão simples | '>1' = quantidade de arestas paralelas");
-            Console.WriteLine(EhDirecionado
-                ? "  Direção: Matriz ASSIMÉTRICA permitida (Dígrafo: linha → coluna). Diagonal em magenta = Repeat (laço).\n"
-                : "  Direção: Matriz SIMÉTRICA (Não-Direcionado: linha ↔ coluna). Diagonal em magenta = Repeat (laço).\n");
-
-            Console.Write("      ");
-            Console.ForegroundColor = ConsoleColor.Yellow;
-            foreach (string cod in codigos)
-                Console.Write(cod.PadLeft(larguraColuna));
-            Console.ResetColor();
-            Console.WriteLine();
-
-            for (int i = 0; i < faixas.Count; i++)
-            {
-                Console.ForegroundColor = ConsoleColor.Cyan;
-                Console.Write($"  {codigos[i],-4}");
-                Console.ResetColor();
-
-                for (int j = 0; j < faixas.Count; j++)
-                {
-                    bool temConexao = celulas[i, j] != "0" && celulas[i, j] != "-";
-                    if (temConexao)
-                        Console.ForegroundColor = i == j ? ConsoleColor.Magenta : ConsoleColor.Green;
-                    else
-                        Console.ForegroundColor = ConsoleColor.DarkGray;
-
-                    Console.Write(celulas[i, j].PadLeft(larguraColuna));
-                    Console.ResetColor();
-                }
-                Console.WriteLine();
-            }
-        }
-
-        private (string[] Codigos, string[,] Celulas, int LarguraColuna) ConstruirDadosMatriz(IReadOnlyList<FaixaMusical> faixas)
+        public (string[] Codigos, string[,] Celulas, int LarguraColuna) ObterDadosMatriz(IReadOnlyList<FaixaMusical> faixas)
         {
             int n = faixas.Count;
             string[] codigos = Enumerable.Range(1, n).Select(i => $"M{i}").ToArray();
             string[,] celulas = new string[n, n];
-            int larguraColuna = 5;
+            int larguraColuna = 4;
 
             for (int i = 0; i < n; i++)
             {
@@ -1065,10 +1007,11 @@ namespace SoundGraph
                             : $"{encontradas.Max(c => c.Peso)}*";
                     }
 
-                    larguraColuna = Math.Max(larguraColuna, celulas[i, j].Length + 2);
+                    larguraColuna = Math.Max(larguraColuna, celulas[i, j].Length + 1);
                 }
             }
 
+            larguraColuna = Math.Max(larguraColuna, codigos.Length > 0 ? codigos.Max(c => c.Length) + 1 : 4);
             return (codigos, celulas, larguraColuna);
         }
 
@@ -1172,7 +1115,7 @@ namespace SoundGraph
             }
             else
             {
-                var (codigos, celulas, larguraColuna) = ConstruirDadosMatriz(faixas);
+                var (codigos, celulas, larguraColuna) = ObterDadosMatriz(faixas);
                 sb.Append("      ");
                 foreach (string cod in codigos)
                     sb.Append(cod.PadLeft(larguraColuna));
@@ -1191,90 +1134,9 @@ namespace SoundGraph
         }
     }
 
-    internal static class Program
+    internal static class InterfaceConsole
     {
-        private static GrafoMusical _grafo = CriarPresetMegaCatalogoStreaming();
-
-        private static void Main()
-        {
-            Console.OutputEncoding = Encoding.UTF8;
-            Console.InputEncoding = Encoding.UTF8;
-
-            while (true)
-            {
-                ExibirCabecalho();
-                ExibirMenu();
-
-                Console.Write("\nEscolha uma opção: ");
-                string? entrada = Console.ReadLine();
-                if (entrada is null)
-                    return;
-
-                string opcao = entrada.Trim();
-                Console.WriteLine();
-
-                switch (opcao)
-                {
-                    case "1":
-                        ExibirEstruturas();
-                        break;
-                    case "2":
-                        ExibirDiagnosticoCompleto();
-                        break;
-                    case "3":
-                        MenuListarCatalogoDetalhado();
-                        break;
-                    case "4":
-                        MenuAdicionarFaixa();
-                        break;
-                    case "5":
-                        MenuAdicionarConexao();
-                        break;
-                    case "6":
-                        MenuAtivarModoRepeat();
-                        break;
-                    case "7":
-                        MenuAutoConectarPorRegras();
-                        break;
-                    case "8":
-                        MenuFiltrarPorRelacionamento();
-                        break;
-                    case "9":
-                        MenuRemoverItem();
-                        break;
-                    case "10":
-                        MenuRecomendarMusicas();
-                        break;
-                    case "11":
-                        MenuGerarPlaylistAutomatica();
-                        break;
-                    case "12":
-                        MenuGerarFilaTransicao();
-                        break;
-                    case "13":
-                        MenuCarregarPresets();
-                        break;
-                    case "14":
-                        MenuCriarGrafoPersonalizado();
-                        break;
-                    case "15":
-                        MenuExportarRelatorio();
-                        break;
-                    case "0":
-                        Console.WriteLine("Encerrando o SoundGraph. Até a próxima!");
-                        return;
-                    default:
-                        EscreverAlerta("Opção inválida. Escolha um número do menu.");
-                        break;
-                }
-
-                Console.WriteLine("\nPressione ENTER para voltar ao menu...");
-                if (Console.ReadLine() is null)
-                    return;
-            }
-        }
-
-        private static void LimparTela()
+        public static void LimparTela()
         {
             if (Console.IsOutputRedirected)
                 return;
@@ -1288,446 +1150,937 @@ namespace SoundGraph
             }
         }
 
-        private static void ExibirCabecalho()
+        public static void EscreverCabecalho(GrafoMusical grafo)
         {
-            LimparTela();
+            DiagnosticoGrafo d = grafo.GerarDiagnostico();
+            string direcao = grafo.EhDirecionado ? "Direcionado (Dígrafo)" : "Não-Direcionado";
+            string peso = grafo.EhPonderado ? "Ponderado (%)" : "Não-Ponderado";
+
             Console.ForegroundColor = ConsoleColor.Cyan;
             Console.WriteLine("===============================================================================");
-            Console.WriteLine("          SOUNDGRAPH PRO - MOTOR DE RECOMENDAÇÃO DE MÚSICAS E PLAYLISTS        ");
-            Console.WriteLine("                Demonstração de Tipos e Direções de Grafos (C#)                ");
+            Console.WriteLine("                  SOUNDGRAPH PRO - RECOMENDAÇÃO MUSICAL EM GRAFOS              ");
             Console.WriteLine("===============================================================================");
             Console.ResetColor();
-
-            string direcao = _grafo.EhDirecionado ? "Direcionado (Dígrafo - Fila/Fluxo)" : "Não-Direcionado (Afinidade Mútua)";
-            string peso = _grafo.EhPonderado ? "Ponderado (Afinidade %)" : "Não-Ponderado";
-            Console.WriteLine($" Cenário atual : {_grafo.NomeCenario}");
-            Console.WriteLine($" Configuração  : {direcao} | {peso}");
-            Console.WriteLine($" Capacidade    : {_grafo.ObterFaixasOrdenadas().Count} músicas (vértices) | {_grafo.ContarArestas()} conexões (arestas) | {_grafo.ContarPorTipoRelacionamento().Count} tipo(s) ativo(s)");
+            Console.WriteLine($" Cenário : {Truncar(grafo.NomeCenario, 66)}");
+            Console.WriteLine($" Modelo  : {direcao} | {peso} | {d.TipoEstruturalCurto}");
+            Console.WriteLine($" Rede    : {d.TotalVertices} músicas (|V|) | {d.TotalArestas} conexões (|E|) | {d.Conectividade}");
             Console.WriteLine("-------------------------------------------------------------------------------");
         }
 
-        private static void ExibirMenu()
+        public static void EscreverTitulo(string titulo)
         {
-            Console.WriteLine(" [1]  Exibir Lista de Adjacência e Matriz de Adjacência");
-            Console.WriteLine(" [2]  Diagnóstico Completo (Tipos, Direções, Relacionamentos e Graus)");
-            Console.WriteLine(" [3]  Listar Catálogo Completo de Músicas (Álbum, Ano, Gênero e BPM)");
-            Console.WriteLine(" [4]  Cadastrar Nova Música (Vértice)");
-            Console.WriteLine(" [5]  Conectar Duas Músicas (Escolhendo entre 14 Tipos de Relacionamento)");
-            Console.WriteLine(" [6]  Ativar Modo Repeat em uma Música (Criar Auto-Laço -> Pseudografo)");
-            Console.WriteLine(" [7]  Auto-Conectar Catálogo por Regras (Gênero, Artista ou BPM Compatível)");
-            Console.WriteLine(" [8]  Filtrar Conexões por Tipo de Relacionamento");
-            Console.WriteLine(" [9]  Remover Música ou Conexão");
-            Console.WriteLine(" [10] Motor de Recomendação (1º Grau Diretas + 2º Grau Descobertas)");
-            Console.WriteLine(" [11] Gerar Playlist Automática Contínua (Percurso por Maior Afinidade)");
-            Console.WriteLine(" [12] Gerar Fila de Transição entre Músicas (BFS e Dijkstra)");
-            Console.WriteLine(" [13] Carregar Cenários Prontos (6 Presets em Alta Capacidade)");
-            Console.WriteLine(" [14] Criar Novo Grafo Musical do Zero (Escolher Direção e Peso)");
-            Console.WriteLine(" [15] Exportar Relatório Completo do Grafo (.TXT)");
-            Console.WriteLine(" [0]  Sair");
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine($"=== {titulo} ===");
+            Console.ResetColor();
         }
 
-        private static void ExibirEstruturas()
+        public static void EscreverSucesso(string msg)
         {
-            EscreverTitulo("LISTA DE ADJACÊNCIA");
-            _grafo.ExibirListaAdjacencia();
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"[OK] {msg}");
+            Console.ResetColor();
+        }
 
+        public static void EscreverAlerta(string msg)
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine($"[!] {msg}");
+            Console.ResetColor();
+        }
+
+        public static void Pausar(string mensagem = "Pressione qualquer tecla para voltar...")
+        {
+            if (Console.IsInputRedirected)
+            {
+                Console.WriteLine($"\n{mensagem}");
+                Console.ReadLine();
+                return;
+            }
+
+            Console.Write($"\n{mensagem}");
+            Console.ReadKey(true);
+        }
+
+        public static int SelecionarOpcao(
+            string titulo,
+            IReadOnlyList<string> opcoes,
+            string? subtitulo = null,
+            bool permitirVoltar = true,
+            string rotuloVoltar = "Voltar",
+            GrafoMusical? cabecalhoGrafo = null,
+            bool atalhoNumericoDireto = true)
+        {
+            if (opcoes.Count == 0)
+                return -1;
+
+            if (Console.IsInputRedirected)
+                return SelecionarOpcaoRedirecionado(titulo, opcoes, subtitulo, permitirVoltar, rotuloVoltar, cabecalhoGrafo);
+
+            int selecionado = 0;
+            int offset = 0;
+            const int maxVisiveis = 10;
+            bool cursorAnterior = true;
+
+            try
+            {
+                if (OperatingSystem.IsWindows())
+                    cursorAnterior = Console.CursorVisible;
+                Console.CursorVisible = false;
+            }
+            catch { }
+
+            try
+            {
+                LimparTela();
+                if (cabecalhoGrafo is not null)
+                    EscreverCabecalho(cabecalhoGrafo);
+
+                EscreverTitulo(titulo);
+                if (!string.IsNullOrWhiteSpace(subtitulo))
+                    Console.WriteLine($" {subtitulo}");
+                Console.WriteLine();
+
+                int linhaInicio = Console.CursorTop;
+                int linhasVisiveis = Math.Min(maxVisiveis, opcoes.Count);
+
+                while (true)
+                {
+                    if (selecionado < offset)
+                        offset = selecionado;
+                    else if (selecionado >= offset + linhasVisiveis)
+                        offset = selecionado - linhasVisiveis + 1;
+
+                    try { Console.SetCursorPosition(0, linhaInicio); } catch { }
+
+                    for (int i = 0; i < linhasVisiveis; i++)
+                    {
+                        int idx = offset + i;
+                        string prefixo = $"[{idx + 1,2}] ";
+                        string texto = Truncar(prefixo + opcoes[idx], 75);
+
+                        if (idx == selecionado)
+                        {
+                            Console.BackgroundColor = ConsoleColor.DarkCyan;
+                            Console.ForegroundColor = ConsoleColor.White;
+                            Console.Write($" ► {texto.PadRight(75)}");
+                            Console.ResetColor();
+                        }
+                        else
+                        {
+                            Console.Write($"   {texto.PadRight(75)}");
+                        }
+                        Console.WriteLine();
+                    }
+
+                    Console.WriteLine();
+                    Console.ForegroundColor = ConsoleColor.DarkGray;
+                    string navIndicador = opcoes.Count > maxVisiveis
+                        ? $" (Item {selecionado + 1}/{opcoes.Count} | PgUp/PgDn)"
+                        : "";
+                    string dicaVoltar = permitirVoltar ? $" | [0/ESC] {rotuloVoltar}" : "";
+                    string dicaAtalho = atalhoNumericoDireto && opcoes.Count <= 9 ? " | [1-9] Atalho" : "";
+                    Console.WriteLine($" [↑/↓] Mover | [ENTER] Confirmar{dicaAtalho}{dicaVoltar}{navIndicador}".PadRight(79));
+                    Console.ResetColor();
+
+                    ConsoleKeyInfo tecla = Console.ReadKey(true);
+                    switch (tecla.Key)
+                    {
+                        case ConsoleKey.UpArrow:
+                        case ConsoleKey.W:
+                            selecionado = (selecionado - 1 + opcoes.Count) % opcoes.Count;
+                            break;
+                        case ConsoleKey.DownArrow:
+                        case ConsoleKey.S:
+                            selecionado = (selecionado + 1) % opcoes.Count;
+                            break;
+                        case ConsoleKey.PageUp:
+                            selecionado = Math.Max(0, selecionado - maxVisiveis);
+                            break;
+                        case ConsoleKey.PageDown:
+                            selecionado = Math.Min(opcoes.Count - 1, selecionado + maxVisiveis);
+                            break;
+                        case ConsoleKey.Home:
+                            selecionado = 0;
+                            break;
+                        case ConsoleKey.End:
+                            selecionado = opcoes.Count - 1;
+                            break;
+                        case ConsoleKey.Enter:
+                        case ConsoleKey.Spacebar:
+                            return selecionado;
+                        case ConsoleKey.Escape:
+                            if (permitirVoltar)
+                                return -1;
+                            break;
+                        case ConsoleKey.D0:
+                        case ConsoleKey.NumPad0:
+                            if (permitirVoltar)
+                                return -1;
+                            break;
+                        default:
+                            if (atalhoNumericoDireto && opcoes.Count <= 9 &&
+                                tecla.KeyChar is >= '1' and <= '9')
+                            {
+                                int num = tecla.KeyChar - '1';
+                                if (num < opcoes.Count)
+                                    return num;
+                            }
+                            break;
+                    }
+                }
+            }
+            finally
+            {
+                Console.ResetColor();
+                try { Console.CursorVisible = cursorAnterior; } catch { }
+            }
+        }
+
+        private static int SelecionarOpcaoRedirecionado(
+            string titulo,
+            IReadOnlyList<string> opcoes,
+            string? subtitulo,
+            bool permitirVoltar,
+            string rotuloVoltar,
+            GrafoMusical? cabecalhoGrafo)
+        {
+            if (cabecalhoGrafo is not null)
+                EscreverCabecalho(cabecalhoGrafo);
+
+            EscreverTitulo(titulo);
+            if (!string.IsNullOrWhiteSpace(subtitulo))
+                Console.WriteLine($" {subtitulo}");
+
+            for (int i = 0; i < opcoes.Count; i++)
+                Console.WriteLine($" [{i + 1}] {opcoes[i]}");
+
+            if (permitirVoltar)
+                Console.WriteLine($" [0] {rotuloVoltar}");
+
+            while (true)
+            {
+                Console.Write("\nEscolha: ");
+                string? entrada = Console.ReadLine();
+                if (entrada is null)
+                    return -1;
+
+                string limpo = entrada.Trim();
+                if (permitirVoltar && limpo == "0")
+                    return -1;
+
+                if (int.TryParse(limpo, out int escolha) && escolha >= 1 && escolha <= opcoes.Count)
+                    return escolha - 1;
+
+                EscreverAlerta("Opção inválida.");
+            }
+        }
+
+        public static string? SelecionarMusica(GrafoMusical grafo, string titulo, string? subtitulo = null)
+        {
+            IReadOnlyList<FaixaMusical> faixas = grafo.ObterFaixasOrdenadas();
+            if (faixas.Count == 0)
+            {
+                EscreverAlerta("Nenhuma música cadastrada no grafo.");
+                Pausar();
+                return null;
+            }
+
+            var itens = faixas
+                .Select((f, i) => $"M{i + 1,-2} — {f.Titulo} ({f.Artista} | {f.Genero} | {f.Bpm} BPM)")
+                .ToList();
+
+            int idx = SelecionarOpcao(
+                titulo,
+                itens,
+                subtitulo ?? "Escolha a faixa usando as setas:",
+                permitirVoltar: true,
+                rotuloVoltar: "Cancelar",
+                atalhoNumericoDireto: false);
+
+            return idx < 0 ? null : faixas[idx].Titulo;
+        }
+
+        public static string GerarBarraAfinidade(int peso)
+        {
+            int cheios = Math.Clamp((int)Math.Round(peso / 10.0), 1, 10);
+            return new string('█', cheios) + new string('░', 10 - cheios);
+        }
+
+        public static string Truncar(string texto, int larguraMax)
+        {
+            if (texto.Length <= larguraMax)
+                return texto;
+
+            return larguraMax <= 3 ? texto[..larguraMax] : texto[..(larguraMax - 3)] + "...";
+        }
+    }
+
+    internal static class PlayerInterativo
+    {
+        public static void Executar(GrafoMusical grafo)
+        {
+            IReadOnlyList<FaixaMusical> faixas = grafo.ObterFaixasOrdenadas();
+            if (faixas.Count == 0)
+            {
+                InterfaceConsole.EscreverAlerta("O grafo está vazio. Cadastre músicas antes de abrir o Player.");
+                InterfaceConsole.Pausar();
+                return;
+            }
+
+            string atual = EscolherFaixaInicial(grafo, faixas);
+            var historico = new List<string> { atual };
+            string aviso = "Navegue pelas conexões com [↑/↓ + ENTER] ou use [A] Auto-DJ.";
+            int selecionado = 0;
+
+            while (true)
+            {
+                FaixaMusical? faixa = grafo.ObterFaixa(atual);
+                if (faixa is null)
+                    return;
+
+                var (diretas, descobertas, possuiRepeat) = grafo.RecomendarAPartirDe(atual);
+                List<ConexaoMusical> conexoesVisiveis = diretas.Take(9).ToList();
+                if (selecionado >= conexoesVisiveis.Count)
+                    selecionado = Math.Max(0, conexoesVisiveis.Count - 1);
+
+                RenderizarTelaPlayer(grafo, faixa, historico, conexoesVisiveis, diretas.Count, descobertas, possuiRepeat, selecionado, aviso);
+
+                if (Console.IsInputRedirected)
+                {
+                    string? cmd = Console.ReadLine()?.Trim();
+                    if (cmd is null || cmd == "0" || cmd.Equals("Q", StringComparison.OrdinalIgnoreCase))
+                        return;
+
+                    if (cmd.Equals("A", StringComparison.OrdinalIgnoreCase))
+                    {
+                        ExecutarAutoDj(grafo, ref atual, historico, diretas, ref aviso, ref selecionado);
+                    }
+                    else if (cmd.Equals("R", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var (_, msg) = grafo.AlternarModoRepeat(atual);
+                        aviso = msg;
+                    }
+                    else if (int.TryParse(cmd, out int idx) && idx >= 1 && idx <= conexoesVisiveis.Count)
+                    {
+                        NavegarPara(grafo, ref atual, conexoesVisiveis[idx - 1], historico, ref aviso, ref selecionado);
+                    }
+                    continue;
+                }
+
+                ConsoleKeyInfo tecla = Console.ReadKey(true);
+                switch (tecla.Key)
+                {
+                    case ConsoleKey.Escape:
+                    case ConsoleKey.Q:
+                        return;
+                    case ConsoleKey.UpArrow:
+                    case ConsoleKey.W:
+                        if (conexoesVisiveis.Count > 0)
+                            selecionado = (selecionado - 1 + conexoesVisiveis.Count) % conexoesVisiveis.Count;
+                        break;
+                    case ConsoleKey.DownArrow:
+                    case ConsoleKey.S:
+                        if (conexoesVisiveis.Count > 0)
+                            selecionado = (selecionado + 1) % conexoesVisiveis.Count;
+                        break;
+                    case ConsoleKey.Enter:
+                    case ConsoleKey.Spacebar:
+                        if (conexoesVisiveis.Count > 0)
+                            NavegarPara(grafo, ref atual, conexoesVisiveis[selecionado], historico, ref aviso, ref selecionado);
+                        else
+                            aviso = "Esta faixa não tem conexões de saída. Use [M] para pular ou [R] para Repeat.";
+                        break;
+                    case ConsoleKey.A:
+                        ExecutarAutoDj(grafo, ref atual, historico, diretas, ref aviso, ref selecionado);
+                        break;
+                    case ConsoleKey.R:
+                        var (_, msgRepeat) = grafo.AlternarModoRepeat(atual);
+                        DiagnosticoGrafo diag = grafo.GerarDiagnostico();
+                        aviso = $"{msgRepeat} | Estrutura atual: {diag.TipoEstruturalCurto}";
+                        break;
+                    case ConsoleKey.M:
+                        string? escolhida = InterfaceConsole.SelecionarMusica(grafo, "PULAR PARA OUTRA MÚSICA", "Escolha a próxima faixa para tocar:");
+                        if (escolhida is not null)
+                        {
+                            atual = escolhida;
+                            historico.Add(atual);
+                            selecionado = 0;
+                            aviso = $"Pulou diretamente para '{atual}'.";
+                        }
+                        break;
+                    case ConsoleKey.F:
+                        string? destino = InterfaceConsole.SelecionarMusica(grafo, "TRAÇAR FILA A PARTIR DA FAIXA ATUAL", $"Origem fixa: {atual} — Escolha o destino:");
+                        if (destino is not null)
+                            Program.ExibirComparativoRotas(grafo, atual, destino);
+                        break;
+                    default:
+                        if (tecla.KeyChar is >= '1' and <= '9')
+                        {
+                            int idx = tecla.KeyChar - '1';
+                            if (idx < conexoesVisiveis.Count)
+                                NavegarPara(grafo, ref atual, conexoesVisiveis[idx], historico, ref aviso, ref selecionado);
+                        }
+                        break;
+                }
+            }
+        }
+
+        private static string EscolherFaixaInicial(GrafoMusical grafo, IReadOnlyList<FaixaMusical> faixas)
+        {
+            return faixas
+                .OrderByDescending(f => grafo.EhDirecionado ? grafo.ObterGrauSaida(f.Titulo) : grafo.ObterGrauNaoDirecionado(f.Titulo))
+                .ThenBy(f => f.Titulo, StringComparer.OrdinalIgnoreCase)
+                .First()
+                .Titulo;
+        }
+
+        private static void NavegarPara(
+            GrafoMusical grafo,
+            ref string atual,
+            ConexaoMusical conexao,
+            List<string> historico,
+            ref string aviso,
+            ref int selecionado)
+        {
+            string origem = atual;
+            atual = conexao.Destino;
+            historico.Add(atual);
+            selecionado = 0;
+
+            string pesoTxt = grafo.EhPonderado ? $" ({conexao.Peso}%)" : "";
+            aviso = $"Transição: {origem} → {atual} via {conexao.Contexto}{pesoTxt}";
+        }
+
+        private static void ExecutarAutoDj(
+            GrafoMusical grafo,
+            ref string atual,
+            List<string> historico,
+            List<ConexaoMusical> diretas,
+            ref string aviso,
+            ref int selecionado)
+        {
+            if (diretas.Count == 0)
+            {
+                aviso = "Auto-DJ sem conexões de saída nesta faixa. Use [M] para trocar.";
+                return;
+            }
+
+            var recentes = historico.TakeLast(4).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            ConexaoMusical proxima = diretas.FirstOrDefault(c => !recentes.Contains(c.Destino)) ?? diretas[0];
+            NavegarPara(grafo, ref atual, proxima, historico, ref aviso, ref selecionado);
+            aviso = "[Auto-DJ] " + aviso;
+        }
+
+        private static void RenderizarTelaPlayer(
+            GrafoMusical grafo,
+            FaixaMusical faixa,
+            List<string> historico,
+            List<ConexaoMusical> conexoesVisiveis,
+            int totalDiretas,
+            List<(string Titulo, int Pontuacao)> descobertas,
+            bool possuiRepeat,
+            int selecionado,
+            string aviso)
+        {
+            InterfaceConsole.LimparTela();
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine("===============================================================================");
+            Console.WriteLine("                    PLAYER INTERATIVO NO GRAFO (SOUNDGRAPH)                    ");
+            Console.WriteLine("===============================================================================");
+            Console.ResetColor();
+
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.Write($"  ♪ TOCANDO AGORA : {faixa.Titulo}");
+            Console.ResetColor();
+            if (possuiRepeat)
+            {
+                Console.ForegroundColor = ConsoleColor.Magenta;
+                Console.Write("  [REPEAT / AUTO-LAÇO ATIVO]");
+                Console.ResetColor();
+            }
             Console.WriteLine();
-            EscreverTitulo("MATRIZ DE ADJACÊNCIA");
-            _grafo.ExibirMatrizAdjacencia();
+
+            string infoGrau = grafo.EhDirecionado
+                ? $"Entrada: {grafo.ObterGrauEntrada(faixa.Titulo)} | Saída: {grafo.ObterGrauSaida(faixa.Titulo)}"
+                : $"Grau: {grafo.ObterGrauNaoDirecionado(faixa.Titulo)}";
+
+            Console.WriteLine($"    Artista: {faixa.Artista} | Gênero: {faixa.Genero} | Álbum: {faixa.Album} ({faixa.Ano}) | {faixa.Bpm} BPM");
+            Console.WriteLine($"    Vértice: {infoGrau} | Cenário: {InterfaceConsole.Truncar(grafo.NomeCenario, 42)}");
+
+            string seta = grafo.EhDirecionado ? " → " : " ↔ ";
+            string trilha = string.Join(seta, historico.TakeLast(4));
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.WriteLine($"    Trilha : {InterfaceConsole.Truncar(trilha, 69)}");
+            Console.ResetColor();
+            Console.WriteLine("-------------------------------------------------------------------------------");
+
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine($"  PRÓXIMAS FAIXAS CONECTADAS (Arestas de saída: {totalDiretas}):");
+            Console.ResetColor();
+
+            if (conexoesVisiveis.Count == 0)
+            {
+                Console.ForegroundColor = ConsoleColor.DarkGray;
+                Console.WriteLine("    (Nenhuma aresta de saída — vértice sumidouro / isolado)");
+                Console.ResetColor();
+            }
+            else
+            {
+                for (int i = 0; i < conexoesVisiveis.Count; i++)
+                {
+                    ConexaoMusical c = conexoesVisiveis[i];
+                    string barra = grafo.EhPonderado
+                        ? $"{InterfaceConsole.GerarBarraAfinidade(c.Peso)} {c.Peso,3}% "
+                        : "";
+                    string linha = $"[{i + 1}] {c.Destino,-22} {barra}({c.Contexto})";
+                    linha = InterfaceConsole.Truncar(linha, 75);
+
+                    if (i == selecionado)
+                    {
+                        Console.BackgroundColor = ConsoleColor.DarkCyan;
+                        Console.ForegroundColor = ConsoleColor.White;
+                        Console.WriteLine($" ► {linha.PadRight(75)}");
+                        Console.ResetColor();
+                    }
+                    else
+                    {
+                        Console.WriteLine($"   {linha.PadRight(75)}");
+                    }
+                }
+            }
+
+            if (descobertas.Count > 0)
+            {
+                string lista2Grau = string.Join(", ", descobertas.Take(4).Select(d => d.Titulo));
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                Console.WriteLine($"\n  ★ Descobertas em 2º grau: {InterfaceConsole.Truncar(lista2Grau, 51)}");
+                Console.ResetColor();
+            }
+
+            Console.WriteLine("-------------------------------------------------------------------------------");
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.WriteLine($"  > {InterfaceConsole.Truncar(aviso, 75)}");
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.WriteLine("  [↑/↓+ENTER] Tocar  [A] Auto-DJ  [R] Repeat  [F] Fila  [M] Trocar  [ESC] Menu");
+            Console.ResetColor();
+        }
+    }
+
+    internal static class Program
+    {
+        private static GrafoMusical _grafo = CriarPresetMegaCatalogoStreaming();
+
+        private static void Main()
+        {
+            Console.OutputEncoding = Encoding.UTF8;
+            Console.InputEncoding = Encoding.UTF8;
+
+            var opcoesMenu = new[]
+            {
+                "Player Interativo (Explorar o grafo tocando músicas ao vivo)",
+                "Visualizar Grafo (Lista de Adjacência, Matriz ou Tabela de Graus)",
+                "Diagnóstico de Teoria dos Grafos (Propriedades explicadas)",
+                "Playlists e Filas (Playlist Automática ou Rota BFS vs. Dijkstra)",
+                "Editar Grafo (Músicas, Conexões, Repeat e Auto-Conexão)",
+                "Trocar Cenário Pronto (6 Presets) ou Criar Novo Grafo",
+                "Exportar Relatório Completo (.TXT)"
+            };
+
+            while (true)
+            {
+                int escolha = InterfaceConsole.SelecionarOpcao(
+                    "MENU PRINCIPAL",
+                    opcoesMenu,
+                    subtitulo: "Escolha uma funcionalidade:",
+                    permitirVoltar: true,
+                    rotuloVoltar: "Sair",
+                    cabecalhoGrafo: _grafo);
+
+                switch (escolha)
+                {
+                    case 0:
+                        PlayerInterativo.Executar(_grafo);
+                        break;
+                    case 1:
+                        MenuVisualizarGrafo();
+                        break;
+                    case 2:
+                        ExibirDiagnosticoCompleto();
+                        break;
+                    case 3:
+                        MenuPlaylistsEFilas();
+                        break;
+                    case 4:
+                        MenuEditarGrafo();
+                        break;
+                    case 5:
+                        MenuCenariosEPresets();
+                        break;
+                    case 6:
+                        MenuExportarRelatorio();
+                        break;
+                    case -1:
+                        InterfaceConsole.LimparTela();
+                        Console.WriteLine("Encerrando o SoundGraph Pro. Até a próxima!");
+                        return;
+                }
+            }
+        }
+
+        private static void MenuVisualizarGrafo()
+        {
+            var opcoes = new[]
+            {
+                "Lista de Adjacência (paginada, 6 faixas por página)",
+                "Matriz de Adjacência (N × N colorida + opção de legenda)",
+                "Catálogo Completo e Tabela de Graus"
+            };
+
+            while (true)
+            {
+                int escolha = InterfaceConsole.SelecionarOpcao(
+                    "VISUALIZAR ESTRUTURA DO GRAFO",
+                    opcoes,
+                    cabecalhoGrafo: _grafo);
+
+                switch (escolha)
+                {
+                    case 0:
+                        ExibirListaAdjacenciaPaginada();
+                        break;
+                    case 1:
+                        ExibirMatrizAdjacenciaInterativa();
+                        break;
+                    case 2:
+                        ExibirCatalogoEGrausPaginado();
+                        break;
+                    case -1:
+                        return;
+                }
+            }
+        }
+
+        private static void ExibirListaAdjacenciaPaginada()
+        {
+            IReadOnlyList<FaixaMusical> faixas = _grafo.ObterFaixasOrdenadas();
+            if (faixas.Count == 0)
+            {
+                InterfaceConsole.LimparTela();
+                InterfaceConsole.EscreverAlerta("Nenhuma música cadastrada no grafo.");
+                InterfaceConsole.Pausar();
+                return;
+            }
+
+            const int porPagina = 6;
+            int totalPaginas = (int)Math.Ceiling(faixas.Count / (double)porPagina);
+            int pagina = 0;
+            string seta = _grafo.EhDirecionado ? "→" : "↔";
+
+            while (true)
+            {
+                InterfaceConsole.LimparTela();
+                InterfaceConsole.EscreverTitulo($"LISTA DE ADJACÊNCIA (Página {pagina + 1}/{totalPaginas})");
+                Console.WriteLine($"  Cada música (vértice) lista suas conexões ({seta} saída):\n");
+
+                foreach (FaixaMusical f in faixas.Skip(pagina * porPagina).Take(porPagina))
+                {
+                    IReadOnlyList<ConexaoMusical> conexoes = _grafo.ObterConexoesDe(f.Titulo);
+                    Console.ForegroundColor = ConsoleColor.Cyan;
+                    Console.Write($"  {f.Titulo}");
+                    Console.ResetColor();
+                    Console.ForegroundColor = ConsoleColor.DarkGray;
+                    Console.WriteLine($"  ({f.Artista} | {f.Bpm} BPM)");
+                    Console.ResetColor();
+
+                    if (conexoes.Count == 0)
+                    {
+                        Console.ForegroundColor = ConsoleColor.DarkGray;
+                        Console.WriteLine("     └─ (sem conexões de saída)");
+                        Console.ResetColor();
+                    }
+                    else
+                    {
+                        for (int i = 0; i < conexoes.Count; i++)
+                        {
+                            ConexaoMusical c = conexoes[i];
+                            string galho = i == conexoes.Count - 1 ? "└─" : "├─";
+                            bool ehLaco = c.Destino.Equals(f.Titulo, StringComparison.OrdinalIgnoreCase);
+                            string simbolo = ehLaco ? "↻" : seta;
+                            string peso = _grafo.EhPonderado ? $" | {c.Peso}%" : "";
+
+                            Console.ForegroundColor = ehLaco ? ConsoleColor.Magenta : ConsoleColor.Green;
+                            Console.Write($"     {galho} {simbolo} {c.Destino}");
+                            Console.ResetColor();
+                            Console.WriteLine($" ({c.Contexto}{peso})");
+                        }
+                    }
+                }
+
+                if (Console.IsInputRedirected)
+                    return;
+
+                Console.ForegroundColor = ConsoleColor.DarkGray;
+                Console.Write("\n  [←/→] Mudar página  |  [ENTER / ESC] Voltar ");
+                Console.ResetColor();
+
+                ConsoleKey key = Console.ReadKey(true).Key;
+                if (key == ConsoleKey.RightArrow || key == ConsoleKey.D || key == ConsoleKey.PageDown)
+                    pagina = (pagina + 1) % totalPaginas;
+                else if (key == ConsoleKey.LeftArrow || key == ConsoleKey.A || key == ConsoleKey.PageUp)
+                    pagina = (pagina - 1 + totalPaginas) % totalPaginas;
+                else if (key == ConsoleKey.Escape || key == ConsoleKey.Enter || key == ConsoleKey.D0)
+                    return;
+            }
+        }
+
+        private static void ExibirMatrizAdjacenciaInterativa()
+        {
+            IReadOnlyList<FaixaMusical> faixas = _grafo.ObterFaixasOrdenadas();
+            if (faixas.Count == 0)
+            {
+                InterfaceConsole.LimparTela();
+                InterfaceConsole.EscreverAlerta("Nenhuma música cadastrada no grafo.");
+                InterfaceConsole.Pausar();
+                return;
+            }
+
+            var (codigos, celulas, larguraColuna) = _grafo.ObterDadosMatriz(faixas);
+            bool mostrarLegenda = faixas.Count <= 8;
+
+            while (true)
+            {
+                InterfaceConsole.LimparTela();
+                InterfaceConsole.EscreverTitulo("MATRIZ DE ADJACÊNCIA");
+                Console.WriteLine(_grafo.EhPonderado
+                    ? "  Valores: '-' = sem conexão | número = peso (%) | 'N*' = arestas paralelas"
+                    : "  Valores: '0' = sem conexão | '1' = conexão simples | '>1' = arestas paralelas");
+                Console.WriteLine(_grafo.EhDirecionado
+                    ? "  Direção: Dígrafo (ASSIMÉTRICA: linha → coluna) | Roxo = Auto-laço Repeat\n"
+                    : "  Direção: Não-Direcionado (SIMÉTRICA: linha ↔ coluna) | Roxo = Auto-laço Repeat\n");
+
+                Console.Write("      ");
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                foreach (string cod in codigos)
+                    Console.Write(cod.PadLeft(larguraColuna));
+                Console.ResetColor();
+                Console.WriteLine();
+
+                for (int i = 0; i < faixas.Count; i++)
+                {
+                    Console.ForegroundColor = ConsoleColor.Cyan;
+                    Console.Write($"  {codigos[i],-4}");
+                    Console.ResetColor();
+
+                    for (int j = 0; j < faixas.Count; j++)
+                    {
+                        bool temConexao = celulas[i, j] != "0" && celulas[i, j] != "-";
+                        if (temConexao)
+                            Console.ForegroundColor = i == j ? ConsoleColor.Magenta : ConsoleColor.Green;
+                        else
+                            Console.ForegroundColor = ConsoleColor.DarkGray;
+
+                        Console.Write(celulas[i, j].PadLeft(larguraColuna));
+                        Console.ResetColor();
+                    }
+                    Console.WriteLine();
+                }
+
+                if (mostrarLegenda)
+                {
+                    Console.WriteLine("\n  Legenda:");
+                    for (int i = 0; i < faixas.Count; i += 2)
+                    {
+                        string esquerda = $"{codigos[i],-3} = {InterfaceConsole.Truncar(faixas[i].Titulo, 30)}";
+                        string direita = i + 1 < faixas.Count
+                            ? $"{codigos[i + 1],-3} = {InterfaceConsole.Truncar(faixas[i + 1].Titulo, 30)}"
+                            : "";
+                        Console.WriteLine($"    {esquerda,-37} {direita}");
+                    }
+                }
+
+                if (Console.IsInputRedirected)
+                    return;
+
+                Console.ForegroundColor = ConsoleColor.DarkGray;
+                Console.Write($"\n  [L] {(mostrarLegenda ? "Ocultar" : "Mostrar")} legenda M1..M{faixas.Count}  |  [ENTER / ESC] Voltar ");
+                Console.ResetColor();
+
+                ConsoleKey key = Console.ReadKey(true).Key;
+                if (key == ConsoleKey.L)
+                    mostrarLegenda = !mostrarLegenda;
+                else if (key == ConsoleKey.Escape || key == ConsoleKey.Enter || key == ConsoleKey.D0)
+                    return;
+            }
+        }
+
+        private static void ExibirCatalogoEGrausPaginado()
+        {
+            IReadOnlyList<FaixaMusical> faixas = _grafo.ObterFaixasOrdenadas();
+            if (faixas.Count == 0)
+            {
+                InterfaceConsole.LimparTela();
+                InterfaceConsole.EscreverAlerta("Catálogo vazio.");
+                InterfaceConsole.Pausar();
+                return;
+            }
+
+            const int porPagina = 12;
+            int totalPaginas = (int)Math.Ceiling(faixas.Count / (double)porPagina);
+            int pagina = 0;
+
+            while (true)
+            {
+                InterfaceConsole.LimparTela();
+                InterfaceConsole.EscreverTitulo($"CATÁLOGO E TABELA DE GRAUS (Página {pagina + 1}/{totalPaginas})");
+
+                if (_grafo.EhDirecionado)
+                {
+                    Console.WriteLine($"  {"#",-4} | {"Título",-22} | {"Artista",-16} | {"BPM",-4} | {"Ent",-4} | {"Saí",-4} | {"Total",-5}");
+                    Console.WriteLine("  " + new string('-', 76));
+
+                    for (int idx = pagina * porPagina; idx < Math.Min(faixas.Count, (pagina + 1) * porPagina); idx++)
+                    {
+                        FaixaMusical f = faixas[idx];
+                        int ent = _grafo.ObterGrauEntrada(f.Titulo);
+                        int sai = _grafo.ObterGrauSaida(f.Titulo);
+                        Console.WriteLine(
+                            $"  {$"M{idx + 1}",-4} | {InterfaceConsole.Truncar(f.Titulo, 22),-22} | {InterfaceConsole.Truncar(f.Artista, 16),-16} | {f.Bpm,-4} | {ent,-4} | {sai,-4} | {ent + sai,-5}");
+                    }
+
+                    FaixaMusical maisAlcancada = faixas.OrderByDescending(f => _grafo.ObterGrauEntrada(f.Titulo)).First();
+                    FaixaMusical maisRecomendadora = faixas.OrderByDescending(f => _grafo.ObterGrauSaida(f.Titulo)).First();
+                    Console.ForegroundColor = ConsoleColor.Green;
+                    Console.WriteLine($"\n  Maior grau de entrada : {maisAlcancada.Titulo} ({_grafo.ObterGrauEntrada(maisAlcancada.Titulo)})");
+                    Console.WriteLine($"  Maior grau de saída   : {maisRecomendadora.Titulo} ({_grafo.ObterGrauSaida(maisRecomendadora.Titulo)})");
+                    Console.ResetColor();
+                }
+                else
+                {
+                    Console.WriteLine($"  {"#",-4} | {"Título",-22} | {"Artista",-16} | {"Gênero",-11} | {"BPM",-4} | {"Grau",-4}");
+                    Console.WriteLine("  " + new string('-', 76));
+
+                    for (int idx = pagina * porPagina; idx < Math.Min(faixas.Count, (pagina + 1) * porPagina); idx++)
+                    {
+                        FaixaMusical f = faixas[idx];
+                        int grau = _grafo.ObterGrauNaoDirecionado(f.Titulo);
+                        Console.WriteLine(
+                            $"  {$"M{idx + 1}",-4} | {InterfaceConsole.Truncar(f.Titulo, 22),-22} | {InterfaceConsole.Truncar(f.Artista, 16),-16} | {InterfaceConsole.Truncar(f.Genero, 11),-11} | {f.Bpm,-4} | {grau,-4}");
+                    }
+
+                    FaixaMusical hub = faixas.OrderByDescending(f => _grafo.ObterGrauNaoDirecionado(f.Titulo)).First();
+                    Console.ForegroundColor = ConsoleColor.Green;
+                    Console.WriteLine($"\n  Faixa hub central (maior grau): {hub.Titulo} (grau {_grafo.ObterGrauNaoDirecionado(hub.Titulo)})");
+                    Console.ResetColor();
+                }
+
+                if (Console.IsInputRedirected)
+                    return;
+
+                Console.ForegroundColor = ConsoleColor.DarkGray;
+                Console.Write("\n  [←/→] Mudar página  |  [ENTER / ESC] Voltar ");
+                Console.ResetColor();
+
+                ConsoleKey key = Console.ReadKey(true).Key;
+                if (key == ConsoleKey.RightArrow || key == ConsoleKey.D || key == ConsoleKey.PageDown)
+                    pagina = (pagina + 1) % totalPaginas;
+                else if (key == ConsoleKey.LeftArrow || key == ConsoleKey.A || key == ConsoleKey.PageUp)
+                    pagina = (pagina - 1 + totalPaginas) % totalPaginas;
+                else if (key == ConsoleKey.Escape || key == ConsoleKey.Enter || key == ConsoleKey.D0)
+                    return;
+            }
         }
 
         private static void ExibirDiagnosticoCompleto()
         {
+            InterfaceConsole.LimparTela();
             DiagnosticoGrafo d = _grafo.GerarDiagnostico();
 
-            EscreverTitulo("DIAGNÓSTICO DE TIPOS E DIREÇÕES DO GRAFO");
-            Console.WriteLine($"  • Direção              : {(d.EhDirecionado ? "Direcionado (Dígrafo - transições de sentido único)" : "Não-Direcionado (afinidade mútua / bidirecional)")}");
-            Console.WriteLine($"  • Ponderação           : {(d.EhPonderado ? "Ponderado (arestas possuem peso de afinidade %)" : "Não-Ponderado (peso unitário)")}");
-            Console.WriteLine($"  • Tipo Estrutural      : {d.TipoEstrutural}");
-            Console.WriteLine($"  • Auto-laços (Repeat)  : {(d.PossuiLacos ? "Sim" : "Não")}");
-            Console.WriteLine($"  • Arestas Paralelas    : {(d.PossuiArestasParalelas ? "Sim (múltiplos relacionamentos entre o mesmo par)" : "Não")}");
-            Console.WriteLine($"  • Conectividade        : {d.Conectividade} ({d.ComponentesConexas} componente(s))");
-            Console.WriteLine($"  • Ciclicidade          : {(d.PossuiCiclo ? "Cíclico (rádio/loop contínuo detectado)" : d.EhDirecionado ? "Acíclico (DAG - Fluxo sem retorno)" : "Acíclico")}");
-            Console.WriteLine($"  • Grafo Completo (Kn)  : {(d.EhCompleto ? $"Sim (K{d.TotalVertices} - todas as faixas conectadas entre si)" : "Não")}");
+            InterfaceConsole.EscreverTitulo("DIAGNÓSTICO DE TEORIA DOS GRAFOS");
+            Console.WriteLine($"  • Direção       : {(d.EhDirecionado ? "Direcionado (Dígrafo — arestas têm origem → destino)" : "Não-Direcionado (afinidade recíproca ↔)")}");
+            Console.WriteLine($"  • Ponderação    : {(d.EhPonderado ? "Ponderado (arestas possuem peso de afinidade %)" : "Não-Ponderado (peso unitário)")}");
+            Console.WriteLine($"  • Estrutura     : {d.TipoEstrutural}");
+            Console.WriteLine($"  • Conectividade : {d.Conectividade} ({d.ComponentesConexas} componente(s))");
+            Console.WriteLine($"      ↳ {(d.EhDirecionado ? "BFS no grafo original + grafo transposto verifica alcançabilidade mútua." : "BFS no grafo verifica se todos os vértices se alcançam.")}");
+            Console.WriteLine($"  • Ciclicidade   : {(d.PossuiCiclo ? "Cíclico (DFS detectou retorno/loop)" : d.EhDirecionado ? "Acíclico — DAG (DFS sem arestas de retorno)" : "Acíclico (sem ciclos)")}");
+            Console.WriteLine($"  • Completo (Kn) : {(d.EhCompleto ? $"Sim (K{d.TotalVertices} — todos os pares conectados)" : "Não")}");
             Console.WriteLine(d.EhDirecionado
-                ? $"  • Grau Médio (Ent+Saí) : {d.GrauMedio:F2} (Entrada = Saída = {d.GrauMedioDirecionadoPorSentido:F2})"
-                : $"  • Grau Médio           : {d.GrauMedio:F2}");
-            Console.WriteLine($"  • Densidade Relativa   : {d.DensidadePercentual:F1}% (pares distintos sem laço)");
+                ? $"  • Grau Médio    : {d.GrauMedio:F2} total (Entrada = Saída = {d.GrauMedioDirecionadoPorSentido:F2})"
+                : $"  • Grau Médio    : {d.GrauMedio:F2}");
+            Console.WriteLine($"  • Densidade     : {d.DensidadePercentual:F1}% (pares distintos sem laço / máximo simples)");
 
             Console.WriteLine();
-            EscreverTitulo("DISTRIBUIÇÃO POR TIPO DE RELACIONAMENTO");
+            InterfaceConsole.EscreverTitulo("RELACIONAMENTOS PRESENTES");
             if (d.ContagemPorTipo.Count == 0)
             {
                 Console.WriteLine("  Nenhuma conexão registrada.");
             }
             else
             {
-                foreach (var par in d.ContagemPorTipo.OrderByDescending(p => p.Value))
-                {
-                    Console.WriteLine($"  • {RelacionamentoHelper.ObterNome(par.Key),-24}: {par.Value} conexão(ões)");
-                }
+                var resumo = d.ContagemPorTipo
+                    .OrderByDescending(p => p.Value)
+                    .Select(p => $"{RelacionamentoHelper.ObterNome(p.Key)} ({p.Value})");
+                foreach (var linha in QuebrarEmLinhas(string.Join(" | ", resumo), 74))
+                    Console.WriteLine($"  {linha}");
             }
 
-            Console.WriteLine();
-            EscreverTitulo("TABELA DE GRAUS DAS FAIXAS");
-
-            IReadOnlyList<FaixaMusical> faixas = _grafo.ObterFaixasOrdenadas();
-            if (faixas.Count == 0)
-            {
-                Console.WriteLine("  Nenhuma música cadastrada.");
-                return;
-            }
-
-            if (_grafo.EhDirecionado)
-            {
-                Console.WriteLine($"  {"#",-4} | {"Faixa Musical",-24} | {"Gênero",-12} | {"Entrada",-8} | {"Saída",-8} | {"Total",-6}");
-                Console.WriteLine("  " + new string('-', 77));
-
-                for (int i = 0; i < faixas.Count; i++)
-                {
-                    FaixaMusical f = faixas[i];
-                    int entrada = _grafo.ObterGrauEntrada(f.Titulo);
-                    int saida = _grafo.ObterGrauSaida(f.Titulo);
-                    Console.WriteLine($"  {$"M{i + 1}",-4} | {f.Titulo,-24} | {f.Genero,-12} | {entrada,-8} | {saida,-8} | {entrada + saida,-6}");
-                }
-
-                FaixaMusical maisAlcancada = faixas.OrderByDescending(f => _grafo.ObterGrauEntrada(f.Titulo)).First();
-                FaixaMusical maisConectadora = faixas.OrderByDescending(f => _grafo.ObterGrauSaida(f.Titulo)).First();
-                Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine($"\n  Faixa mais alcançada (maior grau de entrada): {maisAlcancada.Titulo} ({_grafo.ObterGrauEntrada(maisAlcancada.Titulo)} entrada(s)).");
-                Console.WriteLine($"  Faixa mais recomendadora (maior grau de saída): {maisConectadora.Titulo} ({_grafo.ObterGrauSaida(maisConectadora.Titulo)} saída(s)).");
-                Console.ResetColor();
-            }
-            else
-            {
-                Console.WriteLine($"  {"#",-4} | {"Faixa Musical",-24} | {"Artista",-18} | {"Gênero",-12} | {"Grau",-6} | {"Status",-15}");
-                Console.WriteLine("  " + new string('-', 94));
-
-                for (int i = 0; i < faixas.Count; i++)
-                {
-                    FaixaMusical f = faixas[i];
-                    int grau = _grafo.ObterGrauNaoDirecionado(f.Titulo);
-                    string status = grau == 0 ? "Vértice Isolado" : "Conectada";
-                    Console.WriteLine($"  {$"M{i + 1}",-4} | {f.Titulo,-24} | {f.Artista,-18} | {f.Genero,-12} | {grau,-6} | {status,-15}");
-                }
-
-                FaixaMusical hub = faixas.OrderByDescending(f => _grafo.ObterGrauNaoDirecionado(f.Titulo)).First();
-                Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine($"\n  Faixa hub central (maior grau): {hub.Titulo} (grau {_grafo.ObterGrauNaoDirecionado(hub.Titulo)}).");
-                Console.ResetColor();
-            }
+            InterfaceConsole.Pausar();
         }
 
-        private static void MenuListarCatalogoDetalhado()
+        private static void MenuPlaylistsEFilas()
         {
-            EscreverTitulo("CATÁLOGO COMPLETO DE MÚSICAS");
-            IReadOnlyList<FaixaMusical> faixas = _grafo.ObterFaixasOrdenadas();
-
-            if (faixas.Count == 0)
+            var opcoes = new[]
             {
-                Console.WriteLine("  Catálogo vazio.");
-                return;
-            }
+                "Gerar Playlist Automática Contínua (Algoritmo Guloso)",
+                "Traçar Fila entre 2 Músicas (Comparativo BFS vs. Dijkstra)"
+            };
 
-            Console.WriteLine($"  {"#",-4} | {"Título",-24} | {"Artista",-18} | {"Gênero",-12} | {"Ano",-5} | {"BPM",-4} | {"Álbum",-20}");
-            Console.WriteLine("  " + new string('-', 102));
-
-            for (int i = 0; i < faixas.Count; i++)
+            while (true)
             {
-                FaixaMusical f = faixas[i];
-                Console.WriteLine($"  {$"M{i + 1}",-4} | {f.Titulo,-24} | {f.Artista,-18} | {f.Genero,-12} | {f.Ano,-5} | {f.Bpm,-4} | {f.Album,-20}");
-            }
-        }
+                int escolha = InterfaceConsole.SelecionarOpcao(
+                    "PLAYLISTS E FILAS DE TRANSIÇÃO",
+                    opcoes,
+                    cabecalhoGrafo: _grafo);
 
-        private static void MenuAdicionarFaixa()
-        {
-            EscreverTitulo("CADASTRAR NOVA MÚSICA (VÉRTICE)");
-            Console.Write("Título da música : ");
-            string titulo = (Console.ReadLine() ?? "").Trim();
-            Console.Write("Artista / Banda  : ");
-            string artista = (Console.ReadLine() ?? "").Trim();
-            Console.Write("Gênero musical   : ");
-            string genero = (Console.ReadLine() ?? "").Trim();
-            Console.Write("Álbum (Enter para Single): ");
-            string album = (Console.ReadLine() ?? "").Trim();
-            Console.Write("Ano de lançamento (Enter para 2020): ");
-            if (!int.TryParse(Console.ReadLine(), out int ano))
-                ano = 2020;
-            Console.Write("BPM estimado (40 a 260, Enter para 120): ");
-            if (!int.TryParse(Console.ReadLine(), out int bpm))
-                bpm = 120;
-
-            if (_grafo.AdicionarFaixa(titulo, artista, genero, album, ano, bpm))
-                EscreverSucesso($"Música '{titulo}' adicionada ao catálogo.");
-            else
-                EscreverAlerta("Título inválido ou música já cadastrada.");
-        }
-
-        private static TipoRelacionamento EscolherTipoRelacionamento()
-        {
-            Console.WriteLine("\nTipos de relacionamento disponíveis:");
-            foreach (TipoRelacionamento tipo in Enum.GetValues<TipoRelacionamento>())
-            {
-                Console.WriteLine($"  [{(int)tipo,2}] {RelacionamentoHelper.ObterNome(tipo)}");
-            }
-
-            Console.Write("Escolha o número do relacionamento (Enter para 1 - Afinidade Sonora): ");
-            string entrada = (Console.ReadLine() ?? "").Trim();
-
-            if (int.TryParse(entrada, out int codigo) && Enum.IsDefined(typeof(TipoRelacionamento), codigo))
-                return (TipoRelacionamento)codigo;
-
-            return TipoRelacionamento.AfinidadeSonora;
-        }
-
-        private static void MenuAdicionarConexao()
-        {
-            EscreverTitulo("CONECTAR MÚSICAS (ARESTA / ARCO)");
-            ListarTitulosDisponiveis();
-
-            Console.Write("\nMúsica de origem (título ou código M1..Mn) : ");
-            string origem = (Console.ReadLine() ?? "").Trim();
-            Console.Write("Música de destino (use a mesma para auto-laço Repeat): ");
-            string destino = (Console.ReadLine() ?? "").Trim();
-
-            TipoRelacionamento tipo = EscolherTipoRelacionamento();
-            string? contextoPersonalizado = null;
-
-            if (tipo == TipoRelacionamento.Personalizado)
-            {
-                Console.Write("Digite o rótulo personalizado do relacionamento: ");
-                contextoPersonalizado = (Console.ReadLine() ?? "").Trim();
-            }
-
-            int peso = 1;
-            if (_grafo.EhPonderado)
-            {
-                Console.Write("Afinidade / Peso (1 a 100): ");
-                if (!int.TryParse(Console.ReadLine(), out peso) || peso < 1 || peso > 100)
+                switch (escolha)
                 {
-                    EscreverAlerta("Valor inválido. Aplicando afinidade padrão de 75%.");
-                    peso = 75;
-                }
-            }
-
-            var (sucesso, mensagem) = _grafo.AdicionarConexao(origem, destino, peso, tipo, contextoPersonalizado);
-            if (sucesso)
-                EscreverSucesso(mensagem);
-            else
-                EscreverAlerta(mensagem);
-        }
-
-        private static void MenuAtivarModoRepeat()
-        {
-            EscreverTitulo("ATIVAR MODO REPEAT (CRIAR AUTO-LAÇO)");
-            ListarTitulosDisponiveis();
-
-            Console.Write("\nDigite o título ou código (M1..Mn) da música para colocar em Repeat: ");
-            string titulo = (Console.ReadLine() ?? "").Trim();
-
-            var (sucesso, mensagem) = _grafo.AdicionarConexao(titulo, titulo, 100, TipoRelacionamento.ModoRepeat);
-            if (sucesso)
-                EscreverSucesso(mensagem + " — O grafo agora é classificado como Pseudografo!");
-            else
-                EscreverAlerta(mensagem);
-        }
-
-        private static void MenuAutoConectarPorRegras()
-        {
-            EscreverTitulo("AUTO-CONECTAR CATÁLOGO POR REGRAS MUSICAIS");
-            Console.WriteLine(" [1] Conectar faixas do MESMO GÊNERO");
-            Console.WriteLine(" [2] Conectar faixas do MESMO ARTISTA");
-            Console.WriteLine(" [3] Conectar faixas com BPM COMPATÍVEL (diferença <= 8 BPM)");
-            Console.Write("\nEscolha a regra: ");
-
-            if (!int.TryParse(Console.ReadLine(), out int regra) || regra < 1 || regra > 3)
-            {
-                EscreverAlerta("Regra inválida.");
-                return;
-            }
-
-            int criadas = _grafo.AutoConectarPorRegra(regra);
-            if (criadas > 0)
-                EscreverSucesso($"{criadas} nova(s) conexão(ões) gerada(s) automaticamente!");
-            else
-                EscreverAlerta("Nenhuma nova conexão foi necessária para esta regra.");
-        }
-
-        private static void MenuFiltrarPorRelacionamento()
-        {
-            EscreverTitulo("FILTRAR CONEXÕES POR TIPO DE RELACIONAMENTO");
-            TipoRelacionamento tipo = EscolherTipoRelacionamento();
-
-            var encontradas = _grafo.FiltrarConexoesPorTipo(tipo);
-            string seta = _grafo.EhDirecionado ? "→" : "↔";
-
-            Console.WriteLine($"\n  Relacionamento selecionado: {RelacionamentoHelper.ObterNome(tipo)} ({encontradas.Count} encontrada(s))\n");
-
-            if (encontradas.Count == 0)
-            {
-                Console.WriteLine("  Nenhuma conexão desse tipo cadastrada no cenário atual.");
-                return;
-            }
-
-            foreach (var (origem, conexao) in encontradas)
-            {
-                string peso = _grafo.EhPonderado ? $" [Peso: {conexao.Peso}%]" : "";
-                Console.WriteLine($"  ♪ {origem} {seta} {conexao.Destino} ({conexao.Contexto}){peso}");
-            }
-        }
-
-        private static void MenuRemoverItem()
-        {
-            EscreverTitulo("REMOVER MÚSICA OU CONEXÃO");
-            Console.WriteLine(" [1] Remover uma Música (vértice e todas as suas conexões)");
-            Console.WriteLine(" [2] Remover uma Conexão específica");
-            Console.Write("Opção: ");
-            string op = (Console.ReadLine() ?? "").Trim();
-
-            ListarTitulosDisponiveis();
-
-            if (op == "1")
-            {
-                Console.Write("\nTítulo ou código (M1..Mn) da música a remover: ");
-                string titulo = (Console.ReadLine() ?? "").Trim();
-                if (_grafo.RemoverFaixa(titulo))
-                    EscreverSucesso($"Música '{titulo}' removida com sucesso.");
-                else
-                    EscreverAlerta("Música não encontrada.");
-            }
-            else if (op == "2")
-            {
-                Console.Write("\nMúsica de origem (título ou código) : ");
-                string orig = (Console.ReadLine() ?? "").Trim();
-                Console.Write("Música de destino (título ou código): ");
-                string dest = (Console.ReadLine() ?? "").Trim();
-
-                List<ConexaoMusical> conexoes = _grafo.ObterConexoesEntre(orig, dest);
-                if (conexoes.Count == 0)
-                {
-                    EscreverAlerta("Conexão não encontrada.");
-                    return;
-                }
-
-                if (conexoes.Count == 1)
-                {
-                    if (_grafo.RemoverConexaoPorIndice(orig, dest, 0))
-                        EscreverSucesso("Conexão removida com sucesso.");
-                    else
-                        EscreverAlerta("Conexão não encontrada.");
-                    return;
-                }
-
-                Console.WriteLine($"\nForam encontradas {conexoes.Count} conexões paralelas entre essas músicas:");
-                for (int i = 0; i < conexoes.Count; i++)
-                {
-                    string peso = _grafo.EhPonderado ? $" [Peso: {conexoes[i].Peso}%]" : "";
-                    Console.WriteLine($"  [{i + 1}] {conexoes[i].Contexto}{peso}");
-                }
-                Console.WriteLine("  [0] Remover TODAS entre esse par");
-                Console.Write("Qual conexão deseja remover? ");
-
-                if (!int.TryParse(Console.ReadLine(), out int escolha) || escolha < 0 || escolha > conexoes.Count)
-                {
-                    EscreverAlerta("Seleção inválida.");
-                    return;
-                }
-
-                if (escolha == 0)
-                {
-                    int qtd = _grafo.RemoverTodasConexoesEntre(orig, dest);
-                    EscreverSucesso($"{qtd} conexão(ões) removida(s) entre o par.");
-                }
-                else if (_grafo.RemoverConexaoPorIndice(orig, dest, escolha - 1))
-                {
-                    EscreverSucesso("Conexão selecionada removida com sucesso.");
-                }
-            }
-            else
-            {
-                EscreverAlerta("Opção inválida.");
-            }
-        }
-
-        private static void MenuRecomendarMusicas()
-        {
-            EscreverTitulo("MOTOR DE RECOMENDAÇÃO MUSICAL");
-            ListarTitulosDisponiveis();
-
-            Console.Write("\nQual música você está ouvindo agora? (título ou código M1..Mn): ");
-            string titulo = (Console.ReadLine() ?? "").Trim();
-
-            FaixaMusical? faixa = _grafo.ObterFaixa(titulo);
-            if (faixa is null)
-            {
-                EscreverAlerta("Música não encontrada no catálogo.");
-                return;
-            }
-
-            var (diretas, descobertas, possuiRepeat) = _grafo.RecomendarAPartirDe(faixa.Titulo);
-
-            Console.WriteLine($"\n  Tocando agora: {faixa}");
-            if (possuiRepeat)
-            {
-                Console.ForegroundColor = ConsoleColor.Magenta;
-                Console.WriteLine("  [Repeat] Esta faixa possui auto-laço (Modo Repeat) ativo.");
-                Console.ResetColor();
-            }
-
-            Console.WriteLine("\n  1) Próximas recomendadas (Conexões diretas / 1º grau):");
-            if (diretas.Count == 0)
-            {
-                Console.WriteLine("     Nenhuma conexão direta disponível.");
-            }
-            else
-            {
-                foreach (ConexaoMusical c in diretas)
-                {
-                    string extra = _grafo.EhPonderado ? $" | Afinidade: {c.Peso}%" : "";
-                    Console.WriteLine($"     ♪ {c.Destino} ({c.Contexto}{extra})");
-                }
-            }
-
-            Console.WriteLine("\n  2) Descobertas (Faixas alcançáveis em 2º grau):");
-            if (descobertas.Count == 0)
-            {
-                Console.WriteLine("     Nenhuma descoberta de 2º grau disponível.");
-            }
-            else
-            {
-                foreach (var (sugestao, pontuacao) in descobertas)
-                {
-                    string metrica = _grafo.EhPonderado ? $"índice {pontuacao}" : $"{pontuacao} ponte(s) em comum";
-                    Console.WriteLine($"     ★ {sugestao} ({metrica})");
+                    case 0:
+                        MenuGerarPlaylistAutomatica();
+                        break;
+                    case 1:
+                        MenuGerarFilaTransicao();
+                        break;
+                    case -1:
+                        return;
                 }
             }
         }
 
         private static void MenuGerarPlaylistAutomatica()
         {
-            EscreverTitulo("GERAR PLAYLIST AUTOMÁTICA POR MAIOR AFINIDADE");
-            ListarTitulosDisponiveis();
-
-            Console.Write("\nMúsica inicial da playlist (título ou código M1..Mn): ");
-            string inicio = (Console.ReadLine() ?? "").Trim();
-            FaixaMusical? faixaInicial = _grafo.ObterFaixa(inicio);
-
-            if (faixaInicial is null)
-            {
-                EscreverAlerta("Música não encontrada no catálogo.");
+            string? inicial = InterfaceConsole.SelecionarMusica(_grafo, "PLAYLIST AUTOMÁTICA (GULOSA)", "Escolha a música inicial:");
+            if (inicial is null)
                 return;
-            }
 
-            Console.Write("Quantidade máxima de faixas na playlist (ex.: 6): ");
-            if (!int.TryParse(Console.ReadLine(), out int limite) || limite < 2)
-                limite = 6;
+            var tamanhos = new[] { "4 faixas", "6 faixas", "8 faixas", "10 faixas" };
+            int idxTam = InterfaceConsole.SelecionarOpcao(
+                "TAMANHO DA PLAYLIST",
+                tamanhos,
+                subtitulo: $"Música inicial: {inicial}");
+            if (idxTam < 0)
+                return;
 
-            var passos = _grafo.GerarPlaylistAutomatica(faixaInicial.Titulo, limite);
-            Console.WriteLine($"\n  1. {faixaInicial.Titulo} ({faixaInicial.Artista}) [Início]");
+            int limite = (idxTam + 2) * 2;
+            FaixaMusical? faixaInicial = _grafo.ObterFaixa(inicial);
+            var passos = _grafo.GerarPlaylistAutomatica(inicial, limite);
+
+            InterfaceConsole.LimparTela();
+            InterfaceConsole.EscreverTitulo("PLAYLIST GERADA POR MAIOR AFINIDADE");
+            Console.WriteLine($"\n  1. {faixaInicial?.Titulo} ({faixaInicial?.Artista}) [Início]");
 
             if (passos.Count == 0)
             {
-                EscreverAlerta("Não há conexões de saída disponíveis a partir dessa música.");
+                InterfaceConsole.EscreverAlerta("Não há conexões de saída disponíveis a partir dessa música.");
+                InterfaceConsole.Pausar();
                 return;
             }
 
@@ -1738,116 +2091,464 @@ namespace SoundGraph
                 FaixaMusical? dest = _grafo.ObterFaixa(passo.Destino);
                 somaPesos += passo.Conexao.Peso;
                 string infoPeso = _grafo.EhPonderado ? $" | {passo.Conexao.Peso}%" : "";
-                Console.WriteLine($"  {i + 2}. {passo.Destino} ({dest?.Artista})  <-- via {passo.Conexao.Contexto}{infoPeso}");
+                Console.WriteLine($"  {i + 2}. {passo.Destino} ({dest?.Artista})  <-- {passo.Conexao.Contexto}{infoPeso}");
             }
 
             Console.WriteLine();
             if (_grafo.EhPonderado)
-                EscreverSucesso($"Playlist montada com {passos.Count + 1} faixas | Afinidade média das transições: {(double)somaPesos / passos.Count:F1}%.");
+                InterfaceConsole.EscreverSucesso($"Playlist com {passos.Count + 1} faixas | Afinidade média: {(double)somaPesos / passos.Count:F1}%.");
             else
-                EscreverSucesso($"Playlist montada com {passos.Count + 1} faixas.");
+                InterfaceConsole.EscreverSucesso($"Playlist com {passos.Count + 1} faixas.");
+
+            InterfaceConsole.Pausar();
         }
 
         private static void MenuGerarFilaTransicao()
         {
-            EscreverTitulo("GERAR FILA DE TRANSIÇÃO ENTRE MÚSICAS (BFS e DIJKSTRA)");
-            ListarTitulosDisponiveis();
+            string? orig = InterfaceConsole.SelecionarMusica(_grafo, "FILA DE TRANSIÇÃO (PASSO 1/2)", "Escolha a música de ORIGEM:");
+            if (orig is null)
+                return;
 
-            Console.Write("\nMúsica inicial (título ou código M1..Mn) : ");
-            string orig = (Console.ReadLine() ?? "").Trim();
-            Console.Write("Música destino (título ou código M1..Mn) : ");
-            string dest = (Console.ReadLine() ?? "").Trim();
+            string? dest = InterfaceConsole.SelecionarMusica(_grafo, "FILA DE TRANSIÇÃO (PASSO 2/2)", $"Origem: {orig} — Agora escolha o DESTINO:");
+            if (dest is null)
+                return;
 
-            List<string>? filaBfs = _grafo.GerarFilaTransicao(orig, dest);
+            ExibirComparativoRotas(_grafo, orig, dest);
+        }
+
+        public static void ExibirComparativoRotas(GrafoMusical grafo, string orig, string dest)
+        {
+            InterfaceConsole.LimparTela();
+            InterfaceConsole.EscreverTitulo("COMPARATIVO DE ROTAS: BFS vs. DIJKSTRA");
+            Console.WriteLine($"  Origem  : {orig}");
+            Console.WriteLine($"  Destino : {dest}\n");
+
+            List<string>? filaBfs = grafo.GerarFilaTransicao(orig, dest);
             if (filaBfs is null)
             {
-                EscreverAlerta($"Não existe caminho de transição de '{orig}' até '{dest}' neste grafo.");
+                InterfaceConsole.EscreverAlerta($"Não existe caminho de transição de '{orig}' até '{dest}' neste grafo.");
+                InterfaceConsole.Pausar();
                 return;
             }
 
-            string seta = _grafo.EhDirecionado ? " → " : " ↔ ";
-            EscreverSucesso($"1) Menor caminho em saltos (BFS — {filaBfs.Count - 1} transição(ões)):");
+            string seta = grafo.EhDirecionado ? " → " : " ↔ ";
+            InterfaceConsole.EscreverSucesso($"1) Menor caminho em saltos (BFS — {filaBfs.Count - 1} transição(ões)):");
             Console.WriteLine($"   {string.Join(seta, filaBfs)}");
 
-            if (_grafo.EhPonderado)
+            if (grafo.EhPonderado)
             {
-                var melhorRota = _grafo.GerarFilaTransicaoDijkstra(orig, dest);
+                var melhorRota = grafo.GerarFilaTransicaoDijkstra(orig, dest);
                 if (melhorRota is not null)
                 {
-                    var (caminhoDijkstra, afinidadeMedia) = melhorRota.Value;
+                    var (caminhoDijkstra, passos, afinidadeMedia) = melhorRota.Value;
                     Console.WriteLine();
-                    EscreverSucesso($"2) Rota de maior afinidade (Dijkstra — {caminhoDijkstra.Count - 1} transição(ões) | Média: {afinidadeMedia:F1}%):");
+                    InterfaceConsole.EscreverSucesso($"2) Rota de maior afinidade (Dijkstra — {passos.Count} transição(ões) | Média: {afinidadeMedia:F1}%):");
                     Console.WriteLine($"   {string.Join(seta, caminhoDijkstra)}");
+
+                    if (passos.Count > 0)
+                    {
+                        Console.WriteLine();
+                        foreach (var p in passos)
+                            Console.WriteLine($"     • {p.Origem} {seta.Trim()} {p.Destino} ({p.Contexto} — {p.Peso}%)");
+                    }
+                }
+            }
+
+            InterfaceConsole.Pausar();
+        }
+
+        private static void MenuEditarGrafo()
+        {
+            var opcoes = new[]
+            {
+                "Cadastrar nova música (Vértice)",
+                "Conectar duas músicas (Escolher relacionamento e peso)",
+                "Ligar / Desligar Modo Repeat em uma música (Auto-laço)",
+                "Auto-conectar catálogo por regra (Gênero, Artista ou BPM)",
+                "Filtrar conexões por tipo de relacionamento",
+                "Remover música ou conexão"
+            };
+
+            while (true)
+            {
+                int escolha = InterfaceConsole.SelecionarOpcao(
+                    "EDITAR GRAFO MUSICAL",
+                    opcoes,
+                    cabecalhoGrafo: _grafo);
+
+                switch (escolha)
+                {
+                    case 0:
+                        MenuAdicionarFaixa();
+                        break;
+                    case 1:
+                        MenuAdicionarConexao();
+                        break;
+                    case 2:
+                        MenuAlternarModoRepeat();
+                        break;
+                    case 3:
+                        MenuAutoConectarPorRegras();
+                        break;
+                    case 4:
+                        MenuFiltrarPorRelacionamento();
+                        break;
+                    case 5:
+                        MenuRemoverItem();
+                        break;
+                    case -1:
+                        return;
                 }
             }
         }
 
-        private static void MenuCarregarPresets()
+        private static void MenuAdicionarFaixa()
         {
-            EscreverTitulo("CENÁRIOS PRONTOS EM ALTA CAPACIDADE (TIPOS E DIREÇÕES)");
-            Console.WriteLine(" [1] Mega Catálogo de Streaming   (18 músicas | Direcionado | Ponderado | Multi + Pseudografo)");
-            Console.WriteLine(" [2] Ecossistema Pop & Synth      (12 músicas | Não-Direcionado | Não-Ponderado | Simples | Conexo)");
-            Console.WriteLine(" [3] Histórico Global de Fila     (12 músicas | Direcionado | Ponderado | Cíclico | Desconexo)");
-            Console.WriteLine(" [4] Álbum Conceitual Completo K6 ( 6 músicas | Não-Direcionado | Completo K6 | Simples)");
-            Console.WriteLine(" [5] Setlist de Festival (DAG)    (10 músicas | Direcionado | Ponderado | Acíclico - DAG)");
-            Console.WriteLine(" [6] Mega Mix Treino + Repeat     (10 músicas | Não-Direcionado | Ponderado | Multi + Pseudografo)");
-
-            Console.Write("\nEscolha o cenário: ");
-            string op = (Console.ReadLine() ?? "").Trim();
-
-            switch (op)
+            InterfaceConsole.LimparTela();
+            InterfaceConsole.EscreverTitulo("CADASTRAR NOVA MÚSICA (VÉRTICE)");
+            Console.Write("Título da música (obrigatório)   : ");
+            string titulo = (Console.ReadLine() ?? "").Trim();
+            if (string.IsNullOrWhiteSpace(titulo))
             {
-                case "1":
-                    _grafo = CriarPresetMegaCatalogoStreaming();
-                    break;
-                case "2":
-                    _grafo = CriarPresetEcossistemaPopSimples();
-                    break;
-                case "3":
-                    _grafo = CriarPresetHistoricoGlobalDesconexo();
-                    break;
-                case "4":
-                    _grafo = CriarPresetAlbumCompletoK6();
-                    break;
-                case "5":
-                    _grafo = CriarPresetSetlistFestivalDag();
-                    break;
-                case "6":
-                    _grafo = CriarPresetMegaMixMultigrafoPseudografo();
-                    break;
-                default:
-                    EscreverAlerta("Cenário inválido.");
-                    return;
+                InterfaceConsole.EscreverAlerta("Cadastro cancelado.");
+                InterfaceConsole.Pausar();
+                return;
             }
 
-            EscreverSucesso($"Cenário '{_grafo.NomeCenario}' carregado!");
+            Console.Write("Artista / Banda                  : ");
+            string artista = (Console.ReadLine() ?? "").Trim();
+            Console.Write("Gênero musical                   : ");
+            string genero = (Console.ReadLine() ?? "").Trim();
+            Console.Write("Álbum (Enter para Single)        : ");
+            string album = (Console.ReadLine() ?? "").Trim();
+            Console.Write("Ano (Enter para 2020)            : ");
+            if (!int.TryParse(Console.ReadLine(), out int ano))
+                ano = 2020;
+            Console.Write("BPM 40..260 (Enter para 120)     : ");
+            if (!int.TryParse(Console.ReadLine(), out int bpm))
+                bpm = 120;
+
+            if (_grafo.AdicionarFaixa(titulo, artista, genero, album, ano, bpm))
+                InterfaceConsole.EscreverSucesso($"Música '{titulo}' adicionada ao catálogo.");
+            else
+                InterfaceConsole.EscreverAlerta("Título inválido ou música já cadastrada.");
+
+            InterfaceConsole.Pausar();
+        }
+
+        private static TipoRelacionamento? EscolherTipoRelacionamento()
+        {
+            TipoRelacionamento[] tipos = Enum.GetValues<TipoRelacionamento>();
+            var nomes = tipos.Select(RelacionamentoHelper.ObterNome).ToList();
+
+            int idx = InterfaceConsole.SelecionarOpcao(
+                "ESCOLHER TIPO DE RELACIONAMENTO",
+                nomes,
+                subtitulo: "Qual vínculo liga essas músicas?",
+                atalhoNumericoDireto: false);
+
+            return idx < 0 ? null : tipos[idx];
+        }
+
+        private static void MenuAdicionarConexao()
+        {
+            string? orig = InterfaceConsole.SelecionarMusica(_grafo, "CONECTAR MÚSICAS (PASSO 1/3)", "Escolha a música de ORIGEM:");
+            if (orig is null)
+                return;
+
+            string? dest = InterfaceConsole.SelecionarMusica(_grafo, "CONECTAR MÚSICAS (PASSO 2/3)", $"Origem: {orig} — Escolha o DESTINO (mesma para Repeat):");
+            if (dest is null)
+                return;
+
+            TipoRelacionamento? tipo = EscolherTipoRelacionamento();
+            if (tipo is null)
+                return;
+
+            string? contextoPersonalizado = null;
+            if (tipo == TipoRelacionamento.Personalizado)
+            {
+                InterfaceConsole.LimparTela();
+                InterfaceConsole.EscreverTitulo("RÓTULO PERSONALIZADO");
+                Console.Write("Digite o nome do relacionamento: ");
+                contextoPersonalizado = (Console.ReadLine() ?? "").Trim();
+            }
+
+            int peso = 1;
+            if (_grafo.EhPonderado)
+            {
+                var pesos = new[] { "95% — Muito alta", "85% — Alta", "70% — Média", "50% — Moderada", "Digitar valor manual (1..100)" };
+                int idxPeso = InterfaceConsole.SelecionarOpcao(
+                    "CONECTAR MÚSICAS (AFINIDADE)",
+                    pesos,
+                    subtitulo: $"{orig} → {dest}");
+                if (idxPeso < 0)
+                    return;
+
+                peso = idxPeso switch
+                {
+                    0 => 95,
+                    1 => 85,
+                    2 => 70,
+                    3 => 50,
+                    _ => LerPesoManual()
+                };
+            }
+
+            var (sucesso, mensagem) = _grafo.AdicionarConexao(orig, dest, peso, tipo.Value, contextoPersonalizado);
+            InterfaceConsole.LimparTela();
+            if (sucesso)
+                InterfaceConsole.EscreverSucesso(mensagem);
+            else
+                InterfaceConsole.EscreverAlerta(mensagem);
+
+            InterfaceConsole.Pausar();
+        }
+
+        private static int LerPesoManual()
+        {
+            Console.Write("\nDigite a afinidade (1 a 100): ");
+            if (int.TryParse(Console.ReadLine(), out int peso) && peso >= 1 && peso <= 100)
+                return peso;
+
+            return 75;
+        }
+
+        private static void MenuAlternarModoRepeat()
+        {
+            string? titulo = InterfaceConsole.SelecionarMusica(_grafo, "MODO REPEAT (AUTO-LAÇO)", "Escolha a música para ligar ou desligar o Repeat:");
+            if (titulo is null)
+                return;
+
+            var (_, mensagem) = _grafo.AlternarModoRepeat(titulo);
+            InterfaceConsole.LimparTela();
+            InterfaceConsole.EscreverSucesso(mensagem);
+            Console.WriteLine($"  Tipo estrutural atual: {_grafo.GerarDiagnostico().TipoEstrutural}");
+            InterfaceConsole.Pausar();
+        }
+
+        private static void MenuAutoConectarPorRegras()
+        {
+            var regras = new[]
+            {
+                "Mesmo Gênero (conecta faixas de estilos iguais)",
+                "Mesmo Artista (conecta faixas do mesmo artista)",
+                "BPM Compatível (diferença de até 8 BPM)"
+            };
+
+            int idx = InterfaceConsole.SelecionarOpcao("AUTO-CONECTAR POR REGRAS", regras);
+            if (idx < 0)
+                return;
+
+            int criadas = _grafo.AutoConectarPorRegra(idx + 1);
+            InterfaceConsole.LimparTela();
+            if (criadas > 0)
+                InterfaceConsole.EscreverSucesso($"{criadas} nova(s) conexão(ões) gerada(s) automaticamente!");
+            else
+                InterfaceConsole.EscreverAlerta("Nenhuma nova conexão foi necessária para esta regra.");
+
+            InterfaceConsole.Pausar();
+        }
+
+        private static void MenuFiltrarPorRelacionamento()
+        {
+            TipoRelacionamento? tipo = EscolherTipoRelacionamento();
+            if (tipo is null)
+                return;
+
+            var encontradas = _grafo.FiltrarConexoesPorTipo(tipo.Value);
+            string seta = _grafo.EhDirecionado ? "→" : "↔";
+
+            InterfaceConsole.LimparTela();
+            InterfaceConsole.EscreverTitulo($"FILTRO: {RelacionamentoHelper.ObterNome(tipo.Value).ToUpperInvariant()}");
+            Console.WriteLine($"  Total encontrado: {encontradas.Count} conexão(ões)\n");
+
+            if (encontradas.Count == 0)
+            {
+                Console.WriteLine("  Nenhuma conexão desse tipo cadastrada no cenário atual.");
+            }
+            else
+            {
+                foreach (var (origem, conexao) in encontradas)
+                {
+                    string peso = _grafo.EhPonderado ? $" [{conexao.Peso}%]" : "";
+                    Console.WriteLine($"  ♪ {origem} {seta} {conexao.Destino}{peso}");
+                }
+            }
+
+            InterfaceConsole.Pausar();
+        }
+
+        private static void MenuRemoverItem()
+        {
+            var opcoes = new[]
+            {
+                "Remover uma Música (vértice e todas as suas conexões)",
+                "Remover uma Conexão específica entre duas músicas"
+            };
+
+            int op = InterfaceConsole.SelecionarOpcao("REMOVER DO GRAFO", opcoes);
+            if (op < 0)
+                return;
+
+            if (op == 0)
+            {
+                string? titulo = InterfaceConsole.SelecionarMusica(_grafo, "REMOVER MÚSICA", "Escolha a música para remover:");
+                if (titulo is null)
+                    return;
+
+                InterfaceConsole.LimparTela();
+                if (_grafo.RemoverFaixa(titulo))
+                    InterfaceConsole.EscreverSucesso($"Música '{titulo}' removida com sucesso.");
+                else
+                    InterfaceConsole.EscreverAlerta("Música não encontrada.");
+
+                InterfaceConsole.Pausar();
+                return;
+            }
+
+            string? orig = InterfaceConsole.SelecionarMusica(_grafo, "REMOVER CONEXÃO (ORIGEM)", "Escolha a música de origem:");
+            if (orig is null)
+                return;
+
+            IReadOnlyList<ConexaoMusical> saidas = _grafo.ObterConexoesDe(orig);
+            if (saidas.Count == 0)
+            {
+                InterfaceConsole.LimparTela();
+                InterfaceConsole.EscreverAlerta($"'{orig}' não possui conexões de saída.");
+                InterfaceConsole.Pausar();
+                return;
+            }
+
+            var itens = saidas.Select(c =>
+            {
+                string peso = _grafo.EhPonderado ? $" [{c.Peso}%]" : "";
+                return $"{orig} → {c.Destino} ({c.Contexto}{peso})";
+            }).ToList();
+
+            int idx = InterfaceConsole.SelecionarOpcao(
+                "REMOVER CONEXÃO (ESCOLHA)",
+                itens,
+                subtitulo: $"Conexões a partir de {orig}:",
+                atalhoNumericoDireto: false);
+            if (idx < 0)
+                return;
+
+            ConexaoMusical escolhida = saidas[idx];
+            int indiceEntrePar = saidas
+                .Take(idx)
+                .Count(c => c.Destino.Equals(escolhida.Destino, StringComparison.OrdinalIgnoreCase));
+
+            InterfaceConsole.LimparTela();
+            if (_grafo.RemoverConexaoPorIndice(orig, escolhida.Destino, indiceEntrePar))
+                InterfaceConsole.EscreverSucesso("Conexão removida com sucesso.");
+            else
+                InterfaceConsole.EscreverAlerta("Conexão não encontrada.");
+
+            InterfaceConsole.Pausar();
+        }
+
+        private static void MenuCenariosEPresets()
+        {
+            var opcoes = new[]
+            {
+                "Mega Catálogo de Streaming   (18 faixas | Dígrafo Ponderado | Multi+Pseudo)",
+                "Ecossistema Pop & Synth      (12 faixas | Não-Direcionado | Simples Conexo)",
+                "Histórico Global de Fila     (12 faixas | Dígrafo Cíclico e Desconexo)",
+                "Álbum Conceitual Completo K6 ( 6 faixas | Grafo Completo K6 — 100% denso)",
+                "Setlist de Festival (DAG)    (10 faixas | Dígrafo Ponderado Acíclico DAG)",
+                "Mega Mix Treino + Repeat     (10 faixas | Não-Direcionado Multi+Pseudo)",
+                "Criar Novo Grafo Musical do Zero (escolher direção e ponderação)"
+            };
+
+            int escolha = InterfaceConsole.SelecionarOpcao(
+                "CENÁRIOS PRONTOS E CRIAÇÃO DE GRAFO",
+                opcoes,
+                cabecalhoGrafo: _grafo);
+
+            if (escolha < 0)
+                return;
+
+            if (escolha == 6)
+            {
+                MenuCriarGrafoPersonalizado();
+                return;
+            }
+
+            _grafo = escolha switch
+            {
+                0 => CriarPresetMegaCatalogoStreaming(),
+                1 => CriarPresetEcossistemaPopSimples(),
+                2 => CriarPresetHistoricoGlobalDesconexo(),
+                3 => CriarPresetAlbumCompletoK6(),
+                4 => CriarPresetSetlistFestivalDag(),
+                _ => CriarPresetMegaMixMultigrafoPseudografo()
+            };
+
+            InterfaceConsole.LimparTela();
+            InterfaceConsole.EscreverSucesso($"Cenário carregado: {_grafo.NomeCenario}");
+            InterfaceConsole.Pausar();
         }
 
         private static void MenuCriarGrafoPersonalizado()
         {
-            EscreverTitulo("CRIAR NOVO GRAFO MUSICAL PERSONALIZADO");
-            Console.Write("Nome do cenário: ");
+            InterfaceConsole.LimparTela();
+            InterfaceConsole.EscreverTitulo("CRIAR NOVO GRAFO MUSICAL DO ZERO");
+            Console.Write("Nome do cenário (Enter para Playlist Personalizada): ");
             string nome = (Console.ReadLine() ?? "").Trim();
             if (string.IsNullOrWhiteSpace(nome))
                 nome = "Playlist Personalizada";
 
-            Console.Write("O grafo será DIRECIONADO (fila com sentido único)? (S/N): ");
-            bool direcionado = (Console.ReadLine() ?? "").Trim().Equals("S", StringComparison.OrdinalIgnoreCase);
+            int idxDir = InterfaceConsole.SelecionarOpcao(
+                "DIREÇÃO DAS ARESTAS",
+                new[] { "Direcionado (Dígrafo: origem → destino)", "Não-Direcionado (afinidade mútua: A ↔ B)" },
+                subtitulo: $"Cenário: {nome}");
+            if (idxDir < 0)
+                return;
 
-            Console.Write("O grafo será PONDERADO (com % de afinidade)? (S/N): ");
-            bool ponderado = (Console.ReadLine() ?? "").Trim().Equals("S", StringComparison.OrdinalIgnoreCase);
+            int idxPeso = InterfaceConsole.SelecionarOpcao(
+                "PONDERAÇÃO DAS ARESTAS",
+                new[] { "Ponderado (com afinidade de 1% a 100%)", "Não-Ponderado (peso unitário)" },
+                subtitulo: $"Cenário: {nome}");
+            if (idxPeso < 0)
+                return;
 
-            _grafo = new GrafoMusical(nome, direcionado, ponderado);
-            EscreverSucesso($"Novo grafo '{nome}' criado! Use as opções [4], [5] e [7] para popular sua rede.");
+            _grafo = new GrafoMusical(nome, idxDir == 0, idxPeso == 0);
+            InterfaceConsole.LimparTela();
+            InterfaceConsole.EscreverSucesso($"Novo grafo '{nome}' criado! Use 'Editar Grafo' para adicionar músicas e conexões.");
+            InterfaceConsole.Pausar();
         }
 
         private static void MenuExportarRelatorio()
         {
-            EscreverTitulo("EXPORTAR RELATÓRIO COMPLETO DO GRAFO (.TXT)");
+            InterfaceConsole.LimparTela();
+            InterfaceConsole.EscreverTitulo("EXPORTAR RELATÓRIO COMPLETO (.TXT)");
             string caminhoArquivo = Path.Combine(Directory.GetCurrentDirectory(), "relatorio_soundgraph.txt");
             string conteudo = _grafo.GerarRelatorioTexto();
             File.WriteAllText(caminhoArquivo, conteudo, Encoding.UTF8);
-            EscreverSucesso($"Relatório exportado com sucesso para: {caminhoArquivo}");
+            InterfaceConsole.EscreverSucesso($"Relatório salvo em:\n  {caminhoArquivo}");
+            InterfaceConsole.Pausar();
+        }
+
+        private static IEnumerable<string> QuebrarEmLinhas(string texto, int larguraMax)
+        {
+            var palavras = texto.Split(' ');
+            var linhaAtual = new StringBuilder();
+
+            foreach (string p in palavras)
+            {
+                if (linhaAtual.Length + p.Length + 1 > larguraMax && linhaAtual.Length > 0)
+                {
+                    yield return linhaAtual.ToString();
+                    linhaAtual.Clear();
+                }
+
+                if (linhaAtual.Length > 0)
+                    linhaAtual.Append(' ');
+                linhaAtual.Append(p);
+            }
+
+            if (linhaAtual.Length > 0)
+                yield return linhaAtual.ToString();
         }
 
         private static GrafoMusical CriarPresetMegaCatalogoStreaming()
@@ -2086,34 +2787,6 @@ namespace SoundGraph
             g.AdicionarConexao("Enter Sandman", "Eye of the Tiger", 84, TipoRelacionamento.PlaylistTreino);
             g.AdicionarConexao("Enter Sandman", "Enter Sandman", 100, TipoRelacionamento.ModoRepeat);
             return g;
-        }
-
-        private static void ListarTitulosDisponiveis()
-        {
-            IReadOnlyList<FaixaMusical> faixas = _grafo.ObterFaixasOrdenadas();
-            var codigos = faixas.Select((f, i) => $"[M{i + 1}] {f.Titulo}");
-            Console.WriteLine("Músicas no catálogo: " + string.Join(" | ", codigos));
-        }
-
-        private static void EscreverTitulo(string titulo)
-        {
-            Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.WriteLine($"=== {titulo} ===");
-            Console.ResetColor();
-        }
-
-        private static void EscreverSucesso(string msg)
-        {
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine($"[OK] {msg}");
-            Console.ResetColor();
-        }
-
-        private static void EscreverAlerta(string msg)
-        {
-            Console.ForegroundColor = ConsoleColor.Red;
-            Console.WriteLine($"[!] {msg}");
-            Console.ResetColor();
         }
     }
 }
