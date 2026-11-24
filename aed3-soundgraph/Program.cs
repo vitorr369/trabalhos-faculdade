@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text;
 
@@ -109,6 +110,7 @@ namespace SoundGraph
         public bool PossuiCiclo { get; init; }
         public bool EhCompleto { get; init; }
         public double GrauMedio { get; init; }
+        public double GrauMedioDirecionadoPorSentido { get; init; }
         public double DensidadePercentual { get; init; }
         public Dictionary<TipoRelacionamento, int> ContagemPorTipo { get; init; } = new();
     }
@@ -142,17 +144,39 @@ namespace SoundGraph
         private string? ObterTituloCanonico(string titulo)
         {
             string limpo = titulo.Trim();
-            foreach (string chave in _faixas.Keys)
+            if (string.IsNullOrWhiteSpace(limpo))
+                return null;
+
+            return _faixas.TryGetValue(limpo, out FaixaMusical? faixa) ? faixa.Titulo : null;
+        }
+
+        public string? ResolverTituloOuCodigo(string entrada)
+        {
+            string limpo = entrada.Trim();
+            if (string.IsNullOrWhiteSpace(limpo))
+                return null;
+
+            string? direto = ObterTituloCanonico(limpo);
+            if (direto is not null)
+                return direto;
+
+            string numeroTexto = limpo.StartsWith("M", StringComparison.OrdinalIgnoreCase)
+                ? limpo[1..]
+                : limpo;
+
+            if (int.TryParse(numeroTexto, out int indice))
             {
-                if (chave.Equals(limpo, StringComparison.OrdinalIgnoreCase))
-                    return chave;
+                IReadOnlyList<FaixaMusical> faixas = ObterFaixasOrdenadas();
+                if (indice >= 1 && indice <= faixas.Count)
+                    return faixas[indice - 1].Titulo;
             }
+
             return null;
         }
 
-        public FaixaMusical? ObterFaixa(string titulo)
+        public FaixaMusical? ObterFaixa(string tituloOuCodigo)
         {
-            string? canonico = ObterTituloCanonico(titulo);
+            string? canonico = ResolverTituloOuCodigo(tituloOuCodigo);
             return canonico is null ? null : _faixas[canonico];
         }
 
@@ -179,9 +203,9 @@ namespace SoundGraph
             return true;
         }
 
-        public bool RemoverFaixa(string titulo)
+        public bool RemoverFaixa(string tituloOuCodigo)
         {
-            string? canonico = ObterTituloCanonico(titulo);
+            string? canonico = ResolverTituloOuCodigo(tituloOuCodigo);
             if (canonico is null)
                 return false;
 
@@ -208,15 +232,28 @@ namespace SoundGraph
                 c.Destino.Equals(dest, StringComparison.OrdinalIgnoreCase) && c.Tipo == tipo);
         }
 
+        public List<ConexaoMusical> ObterConexoesEntre(string origemOuCodigo, string destinoOuCodigo)
+        {
+            string? orig = ResolverTituloOuCodigo(origemOuCodigo);
+            string? dest = ResolverTituloOuCodigo(destinoOuCodigo);
+
+            if (orig is null || dest is null)
+                return new List<ConexaoMusical>();
+
+            return _listaAdjacencia[orig]
+                .Where(c => c.Destino.Equals(dest, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+        }
+
         public (bool Sucesso, string Mensagem) AdicionarConexao(
-            string origem,
-            string destino,
+            string origemOuCodigo,
+            string destinoOuCodigo,
             int peso = 1,
             TipoRelacionamento tipo = TipoRelacionamento.AfinidadeSonora,
             string? contextoPersonalizado = null)
         {
-            string? orig = ObterTituloCanonico(origem);
-            string? dest = ObterTituloCanonico(destino);
+            string? orig = ResolverTituloOuCodigo(origemOuCodigo);
+            string? dest = ResolverTituloOuCodigo(destinoOuCodigo);
 
             if (orig is null || dest is null)
                 return (false, "Erro: uma ou ambas as músicas não estão cadastradas.");
@@ -240,10 +277,10 @@ namespace SoundGraph
             return (true, $"Conexão criada: {orig} {seta} {dest} ({novaConexao.Contexto}){textoPeso}");
         }
 
-        public bool RemoverConexao(string origem, string destino, TipoRelacionamento? filtroTipo = null)
+        public bool RemoverConexao(string origemOuCodigo, string destinoOuCodigo, TipoRelacionamento? filtroTipo = null)
         {
-            string? orig = ObterTituloCanonico(origem);
-            string? dest = ObterTituloCanonico(destino);
+            string? orig = ResolverTituloOuCodigo(origemOuCodigo);
+            string? dest = ResolverTituloOuCodigo(destinoOuCodigo);
 
             if (orig is null || dest is null)
                 return false;
@@ -258,24 +295,77 @@ namespace SoundGraph
 
             ConexaoMusical removida = listaOrig[idx];
             listaOrig.RemoveAt(idx);
+            RemoverEspelhoSeNaoDirecionado(orig, dest, removida);
+            return true;
+        }
+
+        public bool RemoverConexaoPorIndice(string origemOuCodigo, string destinoOuCodigo, int indiceEntrePar)
+        {
+            string? orig = ResolverTituloOuCodigo(origemOuCodigo);
+            string? dest = ResolverTituloOuCodigo(destinoOuCodigo);
+
+            if (orig is null || dest is null || indiceEntrePar < 0)
+                return false;
+
+            List<ConexaoMusical> listaOrig = _listaAdjacencia[orig];
+            int encontrados = 0;
+
+            for (int i = 0; i < listaOrig.Count; i++)
+            {
+                if (!listaOrig[i].Destino.Equals(dest, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                if (encontrados == indiceEntrePar)
+                {
+                    ConexaoMusical removida = listaOrig[i];
+                    listaOrig.RemoveAt(i);
+                    RemoverEspelhoSeNaoDirecionado(orig, dest, removida);
+                    return true;
+                }
+
+                encontrados++;
+            }
+
+            return false;
+        }
+
+        public int RemoverTodasConexoesEntre(string origemOuCodigo, string destinoOuCodigo)
+        {
+            string? orig = ResolverTituloOuCodigo(origemOuCodigo);
+            string? dest = ResolverTituloOuCodigo(destinoOuCodigo);
+
+            if (orig is null || dest is null)
+                return 0;
+
+            int removidas = _listaAdjacencia[orig]
+                .RemoveAll(c => c.Destino.Equals(dest, StringComparison.OrdinalIgnoreCase));
 
             if (!EhDirecionado && !orig.Equals(dest, StringComparison.OrdinalIgnoreCase))
             {
-                List<ConexaoMusical> listaDest = _listaAdjacencia[dest];
-                int idxReverso = listaDest.FindIndex(c =>
-                    c.Destino.Equals(orig, StringComparison.OrdinalIgnoreCase) &&
-                    c.Peso == removida.Peso &&
-                    c.Tipo == removida.Tipo &&
-                    c.Contexto.Equals(removida.Contexto, StringComparison.OrdinalIgnoreCase));
-
-                if (idxReverso == -1)
-                    idxReverso = listaDest.FindIndex(c => c.Destino.Equals(orig, StringComparison.OrdinalIgnoreCase));
-
-                if (idxReverso != -1)
-                    listaDest.RemoveAt(idxReverso);
+                _listaAdjacencia[dest]
+                    .RemoveAll(c => c.Destino.Equals(orig, StringComparison.OrdinalIgnoreCase));
             }
 
-            return true;
+            return removidas;
+        }
+
+        private void RemoverEspelhoSeNaoDirecionado(string orig, string dest, ConexaoMusical removida)
+        {
+            if (EhDirecionado || orig.Equals(dest, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            List<ConexaoMusical> listaDest = _listaAdjacencia[dest];
+            int idxReverso = listaDest.FindIndex(c =>
+                c.Destino.Equals(orig, StringComparison.OrdinalIgnoreCase) &&
+                c.Peso == removida.Peso &&
+                c.Tipo == removida.Tipo &&
+                c.Contexto.Equals(removida.Contexto, StringComparison.OrdinalIgnoreCase));
+
+            if (idxReverso == -1)
+                idxReverso = listaDest.FindIndex(c => c.Destino.Equals(orig, StringComparison.OrdinalIgnoreCase));
+
+            if (idxReverso != -1)
+                listaDest.RemoveAt(idxReverso);
         }
 
         public int AutoConectarPorRegra(int tipoRegra)
@@ -292,30 +382,30 @@ namespace SoundGraph
 
                     if (tipoRegra == 1 && a.Genero.Equals(b.Genero, StringComparison.OrdinalIgnoreCase))
                     {
-                        if (!ExisteConexaoMesmoTipo(a.Titulo, b.Titulo, TipoRelacionamento.MesmoGenero))
-                        {
-                            AdicionarConexao(a.Titulo, b.Titulo, 78, TipoRelacionamento.MesmoGenero);
-                            criadas++;
-                        }
+                        criadas += ConectarRegraSimetrica(a.Titulo, b.Titulo, 78, TipoRelacionamento.MesmoGenero);
                     }
                     else if (tipoRegra == 2 && a.Artista.Equals(b.Artista, StringComparison.OrdinalIgnoreCase))
                     {
-                        if (!ExisteConexaoMesmoTipo(a.Titulo, b.Titulo, TipoRelacionamento.MesmoArtista))
-                        {
-                            AdicionarConexao(a.Titulo, b.Titulo, 92, TipoRelacionamento.MesmoArtista);
-                            criadas++;
-                        }
+                        criadas += ConectarRegraSimetrica(a.Titulo, b.Titulo, 92, TipoRelacionamento.MesmoArtista);
                     }
                     else if (tipoRegra == 3 && Math.Abs(a.Bpm - b.Bpm) <= 8)
                     {
-                        FaixaMusical origem = EhDirecionado && a.Bpm > b.Bpm ? b : a;
-                        FaixaMusical destino = EhDirecionado && a.Bpm > b.Bpm ? a : b;
                         int afinidadeBpm = Math.Clamp(100 - Math.Abs(a.Bpm - b.Bpm) * 3, 65, 98);
 
-                        if (!ExisteConexaoMesmoTipo(origem.Titulo, destino.Titulo, TipoRelacionamento.BpmCompativel))
+                        if (EhDirecionado && a.Bpm == b.Bpm)
                         {
-                            AdicionarConexao(origem.Titulo, destino.Titulo, afinidadeBpm, TipoRelacionamento.BpmCompativel);
-                            criadas++;
+                            criadas += ConectarRegraSimetrica(a.Titulo, b.Titulo, afinidadeBpm, TipoRelacionamento.BpmCompativel);
+                        }
+                        else
+                        {
+                            FaixaMusical origem = EhDirecionado && a.Bpm > b.Bpm ? b : a;
+                            FaixaMusical destino = EhDirecionado && a.Bpm > b.Bpm ? a : b;
+
+                            if (!ExisteConexaoMesmoTipo(origem.Titulo, destino.Titulo, TipoRelacionamento.BpmCompativel))
+                            {
+                                AdicionarConexao(origem.Titulo, destino.Titulo, afinidadeBpm, TipoRelacionamento.BpmCompativel);
+                                criadas++;
+                            }
                         }
                     }
                 }
@@ -324,10 +414,28 @@ namespace SoundGraph
             return criadas;
         }
 
+        private int ConectarRegraSimetrica(string tituloA, string tituloB, int peso, TipoRelacionamento tipo)
+        {
+            int criadas = 0;
+
+            if (!ExisteConexaoMesmoTipo(tituloA, tituloB, tipo))
+            {
+                AdicionarConexao(tituloA, tituloB, peso, tipo);
+                criadas++;
+            }
+
+            if (EhDirecionado && !ExisteConexaoMesmoTipo(tituloB, tituloA, tipo))
+            {
+                AdicionarConexao(tituloB, tituloA, peso, tipo);
+                criadas++;
+            }
+
+            return criadas;
+        }
+
         public List<(string Origem, ConexaoMusical Conexao)> FiltrarConexoesPorTipo(TipoRelacionamento tipo)
         {
             var resultado = new List<(string, ConexaoMusical)>();
-            var paresRegistrados = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             foreach (FaixaMusical faixa in ObterFaixasOrdenadas())
             {
@@ -336,19 +444,9 @@ namespace SoundGraph
                     if (conexao.Tipo != tipo)
                         continue;
 
-                    if (!EhDirecionado && !faixa.Titulo.Equals(conexao.Destino, StringComparison.OrdinalIgnoreCase))
-                    {
-                        string menor = string.Compare(faixa.Titulo, conexao.Destino, StringComparison.OrdinalIgnoreCase) <= 0
-                            ? faixa.Titulo
-                            : conexao.Destino;
-                        string maior = menor.Equals(faixa.Titulo, StringComparison.OrdinalIgnoreCase)
-                            ? conexao.Destino
-                            : faixa.Titulo;
-
-                        string chave = $"{menor}|{maior}|{conexao.Peso}|{conexao.Contexto}";
-                        if (!paresRegistrados.Add(chave))
-                            continue;
-                    }
+                    if (!EhDirecionado &&
+                        string.Compare(faixa.Titulo, conexao.Destino, StringComparison.OrdinalIgnoreCase) > 0)
+                        continue;
 
                     resultado.Add((faixa.Titulo, conexao));
                 }
@@ -633,8 +731,22 @@ namespace SoundGraph
                 : _faixas.Keys.Sum(ObterGrauNaoDirecionado);
 
             double grauMedio = n == 0 ? 0 : somaGraus / n;
+            double grauMedioPorSentido = n == 0 ? 0 : (double)e / n;
+
+            int paresDistintos = 0;
+            foreach (var par in _listaAdjacencia)
+            {
+                paresDistintos += par.Value
+                    .Where(c => !c.Destino.Equals(par.Key, StringComparison.OrdinalIgnoreCase))
+                    .Select(c => c.Destino)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .Count();
+            }
+            if (!EhDirecionado)
+                paresDistintos /= 2;
+
             double maxArestasSimples = n < 2 ? 0 : (EhDirecionado ? (double)n * (n - 1) : (double)n * (n - 1) / 2.0);
-            double densidade = maxArestasSimples == 0 ? 0 : (e / maxArestasSimples) * 100.0;
+            double densidade = maxArestasSimples == 0 ? 0 : (paresDistintos / maxArestasSimples) * 100.0;
 
             return new DiagnosticoGrafo
             {
@@ -650,19 +762,24 @@ namespace SoundGraph
                 PossuiCiclo = PossuiCiclo(),
                 EhCompleto = EhCompleto(),
                 GrauMedio = grauMedio,
+                GrauMedioDirecionadoPorSentido = grauMedioPorSentido,
                 DensidadePercentual = densidade,
                 ContagemPorTipo = ContarPorTipoRelacionamento()
             };
         }
 
-        public (List<ConexaoMusical> Diretas, List<(string Titulo, int Pontuacao)> Descobertas)
-            RecomendarAPartirDe(string titulo)
+        public (List<ConexaoMusical> Diretas, List<(string Titulo, int Pontuacao)> Descobertas, bool PossuiModoRepeat)
+            RecomendarAPartirDe(string tituloOuCodigo)
         {
-            string? canonico = ObterTituloCanonico(titulo);
+            string? canonico = ResolverTituloOuCodigo(tituloOuCodigo);
             if (canonico is null)
-                return (new List<ConexaoMusical>(), new List<(string, int)>());
+                return (new List<ConexaoMusical>(), new List<(string, int)>(), false);
+
+            bool possuiModoRepeat = _listaAdjacencia[canonico]
+                .Any(c => c.Destino.Equals(canonico, StringComparison.OrdinalIgnoreCase));
 
             List<ConexaoMusical> diretas = _listaAdjacencia[canonico]
+                .Where(c => !c.Destino.Equals(canonico, StringComparison.OrdinalIgnoreCase))
                 .OrderByDescending(c => c.Peso)
                 .ThenBy(c => c.Destino, StringComparer.OrdinalIgnoreCase)
                 .ToList();
@@ -675,9 +792,6 @@ namespace SoundGraph
 
             foreach (string vizinho in vizinhosDiretos)
             {
-                if (vizinho.Equals(canonico, StringComparison.OrdinalIgnoreCase))
-                    continue;
-
                 foreach (ConexaoMusical segundoGrau in _listaAdjacencia[vizinho])
                 {
                     if (segundoGrau.Destino.Equals(canonico, StringComparison.OrdinalIgnoreCase) ||
@@ -696,12 +810,12 @@ namespace SoundGraph
                 .Select(par => (par.Key, par.Value))
                 .ToList();
 
-            return (diretas, descobertas);
+            return (diretas, descobertas, possuiModoRepeat);
         }
 
-        public List<(string Origem, string Destino, ConexaoMusical Conexao)> GerarPlaylistAutomatica(string tituloInicial, int tamanhoMaximo)
+        public List<(string Origem, string Destino, ConexaoMusical Conexao)> GerarPlaylistAutomatica(string tituloOuCodigoInicial, int tamanhoMaximo)
         {
-            string? atual = ObterTituloCanonico(tituloInicial);
+            string? atual = ResolverTituloOuCodigo(tituloOuCodigoInicial);
             var playlist = new List<(string, string, ConexaoMusical)>();
 
             if (atual is null || tamanhoMaximo < 2)
@@ -728,10 +842,10 @@ namespace SoundGraph
             return playlist;
         }
 
-        public List<string>? GerarFilaTransicao(string origem, string destino)
+        public List<string>? GerarFilaTransicao(string origemOuCodigo, string destinoOuCodigo)
         {
-            string? orig = ObterTituloCanonico(origem);
-            string? dest = ObterTituloCanonico(destino);
+            string? orig = ResolverTituloOuCodigo(origemOuCodigo);
+            string? dest = ResolverTituloOuCodigo(destinoOuCodigo);
 
             if (orig is null || dest is null)
                 return null;
@@ -770,6 +884,67 @@ namespace SoundGraph
             }
 
             return null;
+        }
+
+        public (List<string> Caminho, double AfinidadeMedia)? GerarFilaTransicaoDijkstra(string origemOuCodigo, string destinoOuCodigo)
+        {
+            string? orig = ResolverTituloOuCodigo(origemOuCodigo);
+            string? dest = ResolverTituloOuCodigo(destinoOuCodigo);
+
+            if (orig is null || dest is null)
+                return null;
+
+            if (orig.Equals(dest, StringComparison.OrdinalIgnoreCase))
+                return (new List<string> { orig }, 100.0);
+
+            var distancia = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { [orig] = 0 };
+            var anterior = new Dictionary<string, (string? Anterior, int Peso)>(StringComparer.OrdinalIgnoreCase);
+            var filaPrioridade = new PriorityQueue<string, int>();
+            filaPrioridade.Enqueue(orig, 0);
+
+            while (filaPrioridade.TryDequeue(out string? atual, out int custoAtual))
+            {
+                if (custoAtual > distancia.GetValueOrDefault(atual, int.MaxValue))
+                    continue;
+
+                if (atual.Equals(dest, StringComparison.OrdinalIgnoreCase))
+                    break;
+
+                foreach (ConexaoMusical c in _listaAdjacencia[atual])
+                {
+                    if (c.Destino.Equals(atual, StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    int pesoValido = EhPonderado ? Math.Clamp(c.Peso, 1, 100) : 100;
+                    int custoPasso = 101 - pesoValido;
+                    int novoCusto = custoAtual + custoPasso;
+
+                    if (novoCusto < distancia.GetValueOrDefault(c.Destino, int.MaxValue))
+                    {
+                        distancia[c.Destino] = novoCusto;
+                        anterior[c.Destino] = (atual, pesoValido);
+                        filaPrioridade.Enqueue(c.Destino, novoCusto);
+                    }
+                }
+            }
+
+            if (!anterior.ContainsKey(dest))
+                return null;
+
+            var caminho = new List<string> { dest };
+            var pesos = new List<int>();
+            string cursor = dest;
+
+            while (anterior.TryGetValue(cursor, out var passo) && passo.Anterior is not null)
+            {
+                pesos.Add(passo.Peso);
+                caminho.Add(passo.Anterior);
+                cursor = passo.Anterior;
+            }
+
+            caminho.Reverse();
+            double afinidadeMedia = pesos.Count == 0 ? 100.0 : pesos.Average();
+            return (caminho, afinidadeMedia);
         }
 
         public void ExibirListaAdjacencia()
@@ -818,6 +993,50 @@ namespace SoundGraph
                 return;
             }
 
+            var (codigos, celulas, larguraColuna) = ConstruirDadosMatriz(faixas);
+
+            Console.WriteLine("  Legenda das Faixas:");
+            for (int i = 0; i < faixas.Count; i++)
+                Console.WriteLine($"    {codigos[i],-4} = {faixas[i]}");
+
+            Console.WriteLine();
+            Console.WriteLine(EhPonderado
+                ? "  Valores: '-' = sem conexão | número = peso (%) | 'N*' = arestas paralelas (exibindo maior peso)"
+                : "  Valores: '0' = sem conexão | '1' = conexão simples | '>1' = quantidade de arestas paralelas");
+            Console.WriteLine(EhDirecionado
+                ? "  Direção: Matriz ASSIMÉTRICA permitida (Dígrafo: linha → coluna). Diagonal em magenta = Repeat (laço).\n"
+                : "  Direção: Matriz SIMÉTRICA (Não-Direcionado: linha ↔ coluna). Diagonal em magenta = Repeat (laço).\n");
+
+            Console.Write("      ");
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            foreach (string cod in codigos)
+                Console.Write(cod.PadLeft(larguraColuna));
+            Console.ResetColor();
+            Console.WriteLine();
+
+            for (int i = 0; i < faixas.Count; i++)
+            {
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                Console.Write($"  {codigos[i],-4}");
+                Console.ResetColor();
+
+                for (int j = 0; j < faixas.Count; j++)
+                {
+                    bool temConexao = celulas[i, j] != "0" && celulas[i, j] != "-";
+                    if (temConexao)
+                        Console.ForegroundColor = i == j ? ConsoleColor.Magenta : ConsoleColor.Green;
+                    else
+                        Console.ForegroundColor = ConsoleColor.DarkGray;
+
+                    Console.Write(celulas[i, j].PadLeft(larguraColuna));
+                    Console.ResetColor();
+                }
+                Console.WriteLine();
+            }
+        }
+
+        private (string[] Codigos, string[,] Celulas, int LarguraColuna) ConstruirDadosMatriz(IReadOnlyList<FaixaMusical> faixas)
+        {
             int n = faixas.Count;
             string[] codigos = Enumerable.Range(1, n).Select(i => $"M{i}").ToArray();
             string[,] celulas = new string[n, n];
@@ -850,44 +1069,125 @@ namespace SoundGraph
                 }
             }
 
-            Console.WriteLine("  Legenda das Faixas:");
-            for (int i = 0; i < n; i++)
-                Console.WriteLine($"    {codigos[i],-4} = {faixas[i]}");
+            return (codigos, celulas, larguraColuna);
+        }
 
-            Console.WriteLine();
-            Console.WriteLine(EhPonderado
-                ? "  Valores: '-' = sem conexão | número = peso (%) | 'N*' = arestas paralelas (exibindo maior peso)"
-                : "  Valores: '0' = sem conexão | '1' = conexão simples | '>1' = quantidade de arestas paralelas");
-            Console.WriteLine(EhDirecionado
-                ? "  Direção: Matriz ASSIMÉTRICA permitida (Dígrafo: linha → coluna). Diagonal em magenta = Repeat (laço).\n"
-                : "  Direção: Matriz SIMÉTRICA (Não-Direcionado: linha ↔ coluna). Diagonal em magenta = Repeat (laço).\n");
+        public string GerarRelatorioTexto()
+        {
+            var sb = new StringBuilder();
+            DiagnosticoGrafo d = GerarDiagnostico();
+            IReadOnlyList<FaixaMusical> faixas = ObterFaixasOrdenadas();
 
-            Console.Write("      ");
-            Console.ForegroundColor = ConsoleColor.Yellow;
-            foreach (string cod in codigos)
-                Console.Write(cod.PadLeft(larguraColuna));
-            Console.ResetColor();
-            Console.WriteLine();
+            sb.AppendLine("===============================================================================");
+            sb.AppendLine("                  SOUNDGRAPH PRO - RELATÓRIO DO GRAFO MUSICAL                  ");
+            sb.AppendLine("===============================================================================");
+            sb.AppendLine($"Cenário       : {NomeCenario}");
+            sb.AppendLine($"Gerado em     : {DateTime.Now:dd/MM/yyyy HH:mm:ss}");
+            sb.AppendLine($"Vértices (|V|): {d.TotalVertices}");
+            sb.AppendLine($"Arestas  (|E|): {d.TotalArestas}");
+            sb.AppendLine();
 
-            for (int i = 0; i < n; i++)
+            sb.AppendLine("=== DIAGNÓSTICO DE TIPOS E DIREÇÕES ===");
+            sb.AppendLine($"  • Direção              : {(d.EhDirecionado ? "Direcionado (Dígrafo - transições de sentido único)" : "Não-Direcionado (afinidade mútua / bidirecional)")}");
+            sb.AppendLine($"  • Ponderação           : {(d.EhPonderado ? "Ponderado (arestas possuem peso de afinidade %)" : "Não-Ponderado (peso unitário)")}");
+            sb.AppendLine($"  • Tipo Estrutural      : {d.TipoEstrutural}");
+            sb.AppendLine($"  • Auto-laços (Repeat)  : {(d.PossuiLacos ? "Sim" : "Não")}");
+            sb.AppendLine($"  • Arestas Paralelas    : {(d.PossuiArestasParalelas ? "Sim (múltiplos relacionamentos entre o mesmo par)" : "Não")}");
+            sb.AppendLine($"  • Conectividade        : {d.Conectividade} ({d.ComponentesConexas} componente(s))");
+            sb.AppendLine($"  • Ciclicidade          : {(d.PossuiCiclo ? "Cíclico (rádio/loop contínuo detectado)" : d.EhDirecionado ? "Acíclico (DAG - Fluxo sem retorno)" : "Acíclico")}");
+            sb.AppendLine($"  • Grafo Completo (Kn)  : {(d.EhCompleto ? $"Sim (K{d.TotalVertices} - todas as faixas conectadas entre si)" : "Não")}");
+            sb.AppendLine(d.EhDirecionado
+                ? $"  • Grau Médio (Ent+Saí) : {d.GrauMedio:F2} (Entrada = Saída = {d.GrauMedioDirecionadoPorSentido:F2})"
+                : $"  • Grau Médio           : {d.GrauMedio:F2}");
+            sb.AppendLine($"  • Densidade Relativa   : {d.DensidadePercentual:F1}% (pares distintos sem laço)");
+            sb.AppendLine();
+
+            sb.AppendLine("=== DISTRIBUIÇÃO POR TIPO DE RELACIONAMENTO ===");
+            if (d.ContagemPorTipo.Count == 0)
             {
-                Console.ForegroundColor = ConsoleColor.Cyan;
-                Console.Write($"  {codigos[i],-4}");
-                Console.ResetColor();
-
-                for (int j = 0; j < n; j++)
-                {
-                    bool temConexao = celulas[i, j] != "0" && celulas[i, j] != "-";
-                    if (temConexao)
-                        Console.ForegroundColor = i == j ? ConsoleColor.Magenta : ConsoleColor.Green;
-                    else
-                        Console.ForegroundColor = ConsoleColor.DarkGray;
-
-                    Console.Write(celulas[i, j].PadLeft(larguraColuna));
-                    Console.ResetColor();
-                }
-                Console.WriteLine();
+                sb.AppendLine("  Nenhuma conexão registrada.");
             }
+            else
+            {
+                foreach (var par in d.ContagemPorTipo.OrderByDescending(p => p.Value))
+                    sb.AppendLine($"  • {RelacionamentoHelper.ObterNome(par.Key),-24}: {par.Value} conexão(ões)");
+            }
+            sb.AppendLine();
+
+            sb.AppendLine("=== CATÁLOGO E GRAUS DAS FAIXAS ===");
+            if (faixas.Count == 0)
+            {
+                sb.AppendLine("  Nenhuma música cadastrada.");
+            }
+            else if (EhDirecionado)
+            {
+                sb.AppendLine($"  {"#",-4} | {"Faixa Musical",-24} | {"Artista",-18} | {"Gênero",-12} | {"BPM",-4} | {"Entrada",-7} | {"Saída",-6} | {"Total",-5}");
+                sb.AppendLine("  " + new string('-', 98));
+                for (int i = 0; i < faixas.Count; i++)
+                {
+                    FaixaMusical f = faixas[i];
+                    int ent = ObterGrauEntrada(f.Titulo);
+                    int sai = ObterGrauSaida(f.Titulo);
+                    sb.AppendLine($"  {$"M{i + 1}",-4} | {f.Titulo,-24} | {f.Artista,-18} | {f.Genero,-12} | {f.Bpm,-4} | {ent,-7} | {sai,-6} | {ent + sai,-5}");
+                }
+            }
+            else
+            {
+                sb.AppendLine($"  {"#",-4} | {"Faixa Musical",-24} | {"Artista",-18} | {"Gênero",-12} | {"BPM",-4} | {"Grau",-5}");
+                sb.AppendLine("  " + new string('-', 82));
+                for (int i = 0; i < faixas.Count; i++)
+                {
+                    FaixaMusical f = faixas[i];
+                    int grau = ObterGrauNaoDirecionado(f.Titulo);
+                    sb.AppendLine($"  {$"M{i + 1}",-4} | {f.Titulo,-24} | {f.Artista,-18} | {f.Genero,-12} | {f.Bpm,-4} | {grau,-5}");
+                }
+            }
+            sb.AppendLine();
+
+            sb.AppendLine("=== LISTA DE ADJACÊNCIA ===");
+            if (faixas.Count == 0)
+            {
+                sb.AppendLine("  Nenhuma música cadastrada.");
+            }
+            else
+            {
+                string seta = EhDirecionado ? "→" : "↔";
+                int larguraTitulo = Math.Max(18, faixas.Max(f => f.Titulo.Length));
+                foreach (FaixaMusical f in faixas)
+                {
+                    List<ConexaoMusical> conexoes = _listaAdjacencia[f.Titulo];
+                    string destinoTexto = conexoes.Count == 0
+                        ? "(faixa isolada - sem conexões)"
+                        : string.Join(", ", conexoes.Select(c =>
+                            EhPonderado ? $"{c.Destino} [{c.Contexto}: {c.Peso}%]" : $"{c.Destino} ({c.Contexto})"));
+                    sb.AppendLine($"  {f.Titulo.PadRight(larguraTitulo)} {seta} {destinoTexto}");
+                }
+            }
+            sb.AppendLine();
+
+            sb.AppendLine("=== MATRIZ DE ADJACÊNCIA ===");
+            if (faixas.Count == 0)
+            {
+                sb.AppendLine("  Nenhuma música cadastrada.");
+            }
+            else
+            {
+                var (codigos, celulas, larguraColuna) = ConstruirDadosMatriz(faixas);
+                sb.Append("      ");
+                foreach (string cod in codigos)
+                    sb.Append(cod.PadLeft(larguraColuna));
+                sb.AppendLine();
+
+                for (int i = 0; i < faixas.Count; i++)
+                {
+                    sb.Append($"  {codigos[i],-4}");
+                    for (int j = 0; j < faixas.Count; j++)
+                        sb.Append(celulas[i, j].PadLeft(larguraColuna));
+                    sb.AppendLine();
+                }
+            }
+
+            return sb.ToString();
         }
     }
 
@@ -906,7 +1206,11 @@ namespace SoundGraph
                 ExibirMenu();
 
                 Console.Write("\nEscolha uma opção: ");
-                string opcao = (Console.ReadLine() ?? "").Trim();
+                string? entrada = Console.ReadLine();
+                if (entrada is null)
+                    return;
+
+                string opcao = entrada.Trim();
                 Console.WriteLine();
 
                 switch (opcao)
@@ -953,6 +1257,9 @@ namespace SoundGraph
                     case "14":
                         MenuCriarGrafoPersonalizado();
                         break;
+                    case "15":
+                        MenuExportarRelatorio();
+                        break;
                     case "0":
                         Console.WriteLine("Encerrando o SoundGraph. Até a próxima!");
                         return;
@@ -962,13 +1269,28 @@ namespace SoundGraph
                 }
 
                 Console.WriteLine("\nPressione ENTER para voltar ao menu...");
-                Console.ReadLine();
+                if (Console.ReadLine() is null)
+                    return;
+            }
+        }
+
+        private static void LimparTela()
+        {
+            if (Console.IsOutputRedirected)
+                return;
+
+            try
+            {
+                Console.Clear();
+            }
+            catch (IOException)
+            {
             }
         }
 
         private static void ExibirCabecalho()
         {
-            Console.Clear();
+            LimparTela();
             Console.ForegroundColor = ConsoleColor.Cyan;
             Console.WriteLine("===============================================================================");
             Console.WriteLine("          SOUNDGRAPH PRO - MOTOR DE RECOMENDAÇÃO DE MÚSICAS E PLAYLISTS        ");
@@ -997,9 +1319,10 @@ namespace SoundGraph
             Console.WriteLine(" [9]  Remover Música ou Conexão");
             Console.WriteLine(" [10] Motor de Recomendação (1º Grau Diretas + 2º Grau Descobertas)");
             Console.WriteLine(" [11] Gerar Playlist Automática Contínua (Percurso por Maior Afinidade)");
-            Console.WriteLine(" [12] Gerar Fila de Transição entre Duas Músicas (Menor Caminho - BFS)");
+            Console.WriteLine(" [12] Gerar Fila de Transição entre Músicas (BFS e Dijkstra)");
             Console.WriteLine(" [13] Carregar Cenários Prontos (6 Presets em Alta Capacidade)");
             Console.WriteLine(" [14] Criar Novo Grafo Musical do Zero (Escolher Direção e Peso)");
+            Console.WriteLine(" [15] Exportar Relatório Completo do Grafo (.TXT)");
             Console.WriteLine(" [0]  Sair");
         }
 
@@ -1026,8 +1349,10 @@ namespace SoundGraph
             Console.WriteLine($"  • Conectividade        : {d.Conectividade} ({d.ComponentesConexas} componente(s))");
             Console.WriteLine($"  • Ciclicidade          : {(d.PossuiCiclo ? "Cíclico (rádio/loop contínuo detectado)" : d.EhDirecionado ? "Acíclico (DAG - Fluxo sem retorno)" : "Acíclico")}");
             Console.WriteLine($"  • Grafo Completo (Kn)  : {(d.EhCompleto ? $"Sim (K{d.TotalVertices} - todas as faixas conectadas entre si)" : "Não")}");
-            Console.WriteLine($"  • Grau Médio           : {d.GrauMedio:F2}");
-            Console.WriteLine($"  • Densidade Relativa   : {d.DensidadePercentual:F1}%");
+            Console.WriteLine(d.EhDirecionado
+                ? $"  • Grau Médio (Ent+Saí) : {d.GrauMedio:F2} (Entrada = Saída = {d.GrauMedioDirecionadoPorSentido:F2})"
+                : $"  • Grau Médio           : {d.GrauMedio:F2}");
+            Console.WriteLine($"  • Densidade Relativa   : {d.DensidadePercentual:F1}% (pares distintos sem laço)");
 
             Console.WriteLine();
             EscreverTitulo("DISTRIBUIÇÃO POR TIPO DE RELACIONAMENTO");
@@ -1055,14 +1380,15 @@ namespace SoundGraph
 
             if (_grafo.EhDirecionado)
             {
-                Console.WriteLine($"  {"Faixa Musical",-24} | {"Gênero",-12} | {"Entrada",-8} | {"Saída",-8} | {"Total",-6}");
-                Console.WriteLine("  " + new string('-', 70));
+                Console.WriteLine($"  {"#",-4} | {"Faixa Musical",-24} | {"Gênero",-12} | {"Entrada",-8} | {"Saída",-8} | {"Total",-6}");
+                Console.WriteLine("  " + new string('-', 77));
 
-                foreach (FaixaMusical f in faixas)
+                for (int i = 0; i < faixas.Count; i++)
                 {
+                    FaixaMusical f = faixas[i];
                     int entrada = _grafo.ObterGrauEntrada(f.Titulo);
                     int saida = _grafo.ObterGrauSaida(f.Titulo);
-                    Console.WriteLine($"  {f.Titulo,-24} | {f.Genero,-12} | {entrada,-8} | {saida,-8} | {entrada + saida,-6}");
+                    Console.WriteLine($"  {$"M{i + 1}",-4} | {f.Titulo,-24} | {f.Genero,-12} | {entrada,-8} | {saida,-8} | {entrada + saida,-6}");
                 }
 
                 FaixaMusical maisAlcancada = faixas.OrderByDescending(f => _grafo.ObterGrauEntrada(f.Titulo)).First();
@@ -1074,14 +1400,15 @@ namespace SoundGraph
             }
             else
             {
-                Console.WriteLine($"  {"Faixa Musical",-24} | {"Artista",-18} | {"Gênero",-12} | {"Grau",-6} | {"Status",-15}");
-                Console.WriteLine("  " + new string('-', 87));
+                Console.WriteLine($"  {"#",-4} | {"Faixa Musical",-24} | {"Artista",-18} | {"Gênero",-12} | {"Grau",-6} | {"Status",-15}");
+                Console.WriteLine("  " + new string('-', 94));
 
-                foreach (FaixaMusical f in faixas)
+                for (int i = 0; i < faixas.Count; i++)
                 {
+                    FaixaMusical f = faixas[i];
                     int grau = _grafo.ObterGrauNaoDirecionado(f.Titulo);
                     string status = grau == 0 ? "Vértice Isolado" : "Conectada";
-                    Console.WriteLine($"  {f.Titulo,-24} | {f.Artista,-18} | {f.Genero,-12} | {grau,-6} | {status,-15}");
+                    Console.WriteLine($"  {$"M{i + 1}",-4} | {f.Titulo,-24} | {f.Artista,-18} | {f.Genero,-12} | {grau,-6} | {status,-15}");
                 }
 
                 FaixaMusical hub = faixas.OrderByDescending(f => _grafo.ObterGrauNaoDirecionado(f.Titulo)).First();
@@ -1158,7 +1485,7 @@ namespace SoundGraph
             EscreverTitulo("CONECTAR MÚSICAS (ARESTA / ARCO)");
             ListarTitulosDisponiveis();
 
-            Console.Write("\nMúsica de origem : ");
+            Console.Write("\nMúsica de origem (título ou código M1..Mn) : ");
             string origem = (Console.ReadLine() ?? "").Trim();
             Console.Write("Música de destino (use a mesma para auto-laço Repeat): ");
             string destino = (Console.ReadLine() ?? "").Trim();
@@ -1195,7 +1522,7 @@ namespace SoundGraph
             EscreverTitulo("ATIVAR MODO REPEAT (CRIAR AUTO-LAÇO)");
             ListarTitulosDisponiveis();
 
-            Console.Write("\nDigite o título da música para colocar em Repeat: ");
+            Console.Write("\nDigite o título ou código (M1..Mn) da música para colocar em Repeat: ");
             string titulo = (Console.ReadLine() ?? "").Trim();
 
             var (sucesso, mensagem) = _grafo.AdicionarConexao(titulo, titulo, 100, TipoRelacionamento.ModoRepeat);
@@ -1261,7 +1588,7 @@ namespace SoundGraph
 
             if (op == "1")
             {
-                Console.Write("\nTítulo da música a remover: ");
+                Console.Write("\nTítulo ou código (M1..Mn) da música a remover: ");
                 string titulo = (Console.ReadLine() ?? "").Trim();
                 if (_grafo.RemoverFaixa(titulo))
                     EscreverSucesso($"Música '{titulo}' removida com sucesso.");
@@ -1270,15 +1597,51 @@ namespace SoundGraph
             }
             else if (op == "2")
             {
-                Console.Write("\nMúsica de origem : ");
+                Console.Write("\nMúsica de origem (título ou código) : ");
                 string orig = (Console.ReadLine() ?? "").Trim();
-                Console.Write("Música de destino: ");
+                Console.Write("Música de destino (título ou código): ");
                 string dest = (Console.ReadLine() ?? "").Trim();
 
-                if (_grafo.RemoverConexao(orig, dest))
-                    EscreverSucesso("Conexão removida com sucesso.");
-                else
+                List<ConexaoMusical> conexoes = _grafo.ObterConexoesEntre(orig, dest);
+                if (conexoes.Count == 0)
+                {
                     EscreverAlerta("Conexão não encontrada.");
+                    return;
+                }
+
+                if (conexoes.Count == 1)
+                {
+                    if (_grafo.RemoverConexaoPorIndice(orig, dest, 0))
+                        EscreverSucesso("Conexão removida com sucesso.");
+                    else
+                        EscreverAlerta("Conexão não encontrada.");
+                    return;
+                }
+
+                Console.WriteLine($"\nForam encontradas {conexoes.Count} conexões paralelas entre essas músicas:");
+                for (int i = 0; i < conexoes.Count; i++)
+                {
+                    string peso = _grafo.EhPonderado ? $" [Peso: {conexoes[i].Peso}%]" : "";
+                    Console.WriteLine($"  [{i + 1}] {conexoes[i].Contexto}{peso}");
+                }
+                Console.WriteLine("  [0] Remover TODAS entre esse par");
+                Console.Write("Qual conexão deseja remover? ");
+
+                if (!int.TryParse(Console.ReadLine(), out int escolha) || escolha < 0 || escolha > conexoes.Count)
+                {
+                    EscreverAlerta("Seleção inválida.");
+                    return;
+                }
+
+                if (escolha == 0)
+                {
+                    int qtd = _grafo.RemoverTodasConexoesEntre(orig, dest);
+                    EscreverSucesso($"{qtd} conexão(ões) removida(s) entre o par.");
+                }
+                else if (_grafo.RemoverConexaoPorIndice(orig, dest, escolha - 1))
+                {
+                    EscreverSucesso("Conexão selecionada removida com sucesso.");
+                }
             }
             else
             {
@@ -1291,7 +1654,7 @@ namespace SoundGraph
             EscreverTitulo("MOTOR DE RECOMENDAÇÃO MUSICAL");
             ListarTitulosDisponiveis();
 
-            Console.Write("\nQual música você está ouvindo agora? ");
+            Console.Write("\nQual música você está ouvindo agora? (título ou código M1..Mn): ");
             string titulo = (Console.ReadLine() ?? "").Trim();
 
             FaixaMusical? faixa = _grafo.ObterFaixa(titulo);
@@ -1301,9 +1664,16 @@ namespace SoundGraph
                 return;
             }
 
-            var (diretas, descobertas) = _grafo.RecomendarAPartirDe(faixa.Titulo);
+            var (diretas, descobertas, possuiRepeat) = _grafo.RecomendarAPartirDe(faixa.Titulo);
 
             Console.WriteLine($"\n  Tocando agora: {faixa}");
+            if (possuiRepeat)
+            {
+                Console.ForegroundColor = ConsoleColor.Magenta;
+                Console.WriteLine("  [Repeat] Esta faixa possui auto-laço (Modo Repeat) ativo.");
+                Console.ResetColor();
+            }
+
             Console.WriteLine("\n  1) Próximas recomendadas (Conexões diretas / 1º grau):");
             if (diretas.Count == 0)
             {
@@ -1338,7 +1708,7 @@ namespace SoundGraph
             EscreverTitulo("GERAR PLAYLIST AUTOMÁTICA POR MAIOR AFINIDADE");
             ListarTitulosDisponiveis();
 
-            Console.Write("\nMúsica inicial da playlist: ");
+            Console.Write("\nMúsica inicial da playlist (título ou código M1..Mn): ");
             string inicio = (Console.ReadLine() ?? "").Trim();
             FaixaMusical? faixaInicial = _grafo.ObterFaixa(inicio);
 
@@ -1371,31 +1741,45 @@ namespace SoundGraph
                 Console.WriteLine($"  {i + 2}. {passo.Destino} ({dest?.Artista})  <-- via {passo.Conexao.Contexto}{infoPeso}");
             }
 
+            Console.WriteLine();
             if (_grafo.EhPonderado)
-                EscreverSucesso($"\nPlaylist montada com {passos.Count + 1} faixas | Afinidade média das transições: {(double)somaPesos / passos.Count:F1}%.");
+                EscreverSucesso($"Playlist montada com {passos.Count + 1} faixas | Afinidade média das transições: {(double)somaPesos / passos.Count:F1}%.");
             else
-                EscreverSucesso($"\nPlaylist montada com {passos.Count + 1} faixas.");
+                EscreverSucesso($"Playlist montada com {passos.Count + 1} faixas.");
         }
 
         private static void MenuGerarFilaTransicao()
         {
-            EscreverTitulo("GERAR FILA DE TRANSIÇÃO ENTRE MÚSICAS (BFS)");
+            EscreverTitulo("GERAR FILA DE TRANSIÇÃO ENTRE MÚSICAS (BFS e DIJKSTRA)");
             ListarTitulosDisponiveis();
 
-            Console.Write("\nMúsica inicial : ");
+            Console.Write("\nMúsica inicial (título ou código M1..Mn) : ");
             string orig = (Console.ReadLine() ?? "").Trim();
-            Console.Write("Música destino : ");
+            Console.Write("Música destino (título ou código M1..Mn) : ");
             string dest = (Console.ReadLine() ?? "").Trim();
 
-            List<string>? fila = _grafo.GerarFilaTransicao(orig, dest);
-            if (fila is null)
+            List<string>? filaBfs = _grafo.GerarFilaTransicao(orig, dest);
+            if (filaBfs is null)
             {
                 EscreverAlerta($"Não existe caminho de transição de '{orig}' até '{dest}' neste grafo.");
                 return;
             }
 
             string seta = _grafo.EhDirecionado ? " → " : " ↔ ";
-            EscreverSucesso($"Fila gerada ({fila.Count - 1} transição(ões)): {string.Join(seta, fila)}");
+            EscreverSucesso($"1) Menor caminho em saltos (BFS — {filaBfs.Count - 1} transição(ões)):");
+            Console.WriteLine($"   {string.Join(seta, filaBfs)}");
+
+            if (_grafo.EhPonderado)
+            {
+                var melhorRota = _grafo.GerarFilaTransicaoDijkstra(orig, dest);
+                if (melhorRota is not null)
+                {
+                    var (caminhoDijkstra, afinidadeMedia) = melhorRota.Value;
+                    Console.WriteLine();
+                    EscreverSucesso($"2) Rota de maior afinidade (Dijkstra — {caminhoDijkstra.Count - 1} transição(ões) | Média: {afinidadeMedia:F1}%):");
+                    Console.WriteLine($"   {string.Join(seta, caminhoDijkstra)}");
+                }
+            }
         }
 
         private static void MenuCarregarPresets()
@@ -1455,6 +1839,15 @@ namespace SoundGraph
 
             _grafo = new GrafoMusical(nome, direcionado, ponderado);
             EscreverSucesso($"Novo grafo '{nome}' criado! Use as opções [4], [5] e [7] para popular sua rede.");
+        }
+
+        private static void MenuExportarRelatorio()
+        {
+            EscreverTitulo("EXPORTAR RELATÓRIO COMPLETO DO GRAFO (.TXT)");
+            string caminhoArquivo = Path.Combine(Directory.GetCurrentDirectory(), "relatorio_soundgraph.txt");
+            string conteudo = _grafo.GerarRelatorioTexto();
+            File.WriteAllText(caminhoArquivo, conteudo, Encoding.UTF8);
+            EscreverSucesso($"Relatório exportado com sucesso para: {caminhoArquivo}");
         }
 
         private static GrafoMusical CriarPresetMegaCatalogoStreaming()
@@ -1697,8 +2090,9 @@ namespace SoundGraph
 
         private static void ListarTitulosDisponiveis()
         {
-            var titulos = _grafo.ObterFaixasOrdenadas().Select(f => f.Titulo);
-            Console.WriteLine("Músicas no catálogo: " + string.Join(" | ", titulos));
+            IReadOnlyList<FaixaMusical> faixas = _grafo.ObterFaixasOrdenadas();
+            var codigos = faixas.Select((f, i) => $"[M{i + 1}] {f.Titulo}");
+            Console.WriteLine("Músicas no catálogo: " + string.Join(" | ", codigos));
         }
 
         private static void EscreverTitulo(string titulo)

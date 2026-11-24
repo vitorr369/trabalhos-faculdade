@@ -2,7 +2,7 @@
 
 Trabalho da disciplina de **Algoritmos e Estrutura de Dados 3 (AED3)** desenvolvido em **C# (.NET 10)**.
 
-O projeto aplica na prática os principais conceitos de **Teoria dos Grafos** — incluindo **tipos estruturais, direções, ponderação, representações computacionais e algoritmos de busca/percurso** — modelados como um motor de recomendação musical, geração automática de playlists e transição de fila no terminal.
+O projeto aplica na prática os principais conceitos de **Teoria dos Grafos** — incluindo **tipos estruturais, direções, ponderação, representações computacionais e algoritmos de busca e caminho mínimo** — modelados como um motor de recomendação musical, geração automática de playlists, transição de fila e exportação de relatório no terminal.
 
 ---
 
@@ -10,7 +10,7 @@ O projeto aplica na prática os principais conceitos de **Teoria dos Grafos** �
 
 Um catálogo musical é modelado como um grafo $G = (V, E)$, onde:
 
-- **Vértices (`FaixaMusical`):** Cada vértice representa uma música cadastrada no catálogo, armazenando `Titulo`, `Artista`, `Genero`, `Album`, `Ano` e `Bpm` em um dicionário `Dictionary<string, FaixaMusical>` (*case-insensitive*).
+- **Vértices (`FaixaMusical`):** Cada vértice representa uma música cadastrada no catálogo, armazenando `Titulo`, `Artista`, `Genero`, `Album`, `Ano` e `Bpm` em um dicionário `Dictionary<string, FaixaMusical>` (*case-insensitive*, permitindo busca $O(1)$ pelo título ou seleção pelo código rápido `M1..Mn`).
 - **Arestas / Arcos (`ConexaoMusical`) e 14 Tipos de Relacionamento (`TipoRelacionamento`):** Cada conexão liga uma faixa de origem a uma faixa de destino, carregando um **peso de afinidade** (quando ponderado) e um rótulo semântico:
   - `AfinidadeSonora`, `MesmoArtista`, `MesmoAlbum`, `MesmoGenero`, `ColaboracaoFeat`, `TransicaoFila`, `PlaylistTreino`, `PlaylistFoco`, `PlaylistFesta`, `SampleOuCover`, `BpmCompativel`, `RadioLoop`, `ModoRepeat` (auto-laço) e `Personalizado`.
 
@@ -18,7 +18,7 @@ Um catálogo musical é modelado como um grafo $G = (V, E)$, onde:
 
 1. **Lista de Adjacência (`_listaAdjacencia`):**
    - Implementada como `Dictionary<string, List<ConexaoMusical>>`.
-   - Ideal para grafos esparsos e consultas rápidas da vizinhança de uma faixa na recomendação e na busca em largura (BFS).
+   - Ideal para grafos esparsos e consultas rápidas da vizinhança de uma faixa na recomendação, BFS e Dijkstra.
 2. **Matriz de Adjacência (`ExibirMatrizAdjacencia`):**
    - Construída dinamicamente como matriz $N \times N$ (`M1` até `Mn`) a partir da lista de adjacência.
    - Evidencia visualmente a **simetria** ($M[i,j] = M[j,i]$) em grafos não-direcionados, a **assimetria** em dígrafos, a **diagonal principal** destacada para auto-laços (*Modo Repeat*) e o indicador `N*` quando há **arestas paralelas** em grafos ponderados.
@@ -27,7 +27,7 @@ Um catálogo musical é modelado como um grafo $G = (V, E)$, onde:
 
 - **Quanto à Direção:**
   - **Não-Direcionado (`EhDirecionado = false`):** Afinidade mútua/bidirecional ($u \leftrightarrow v$). Cada conexão é inserida nos dois sentidos na lista de adjacência (exceto auto-laços), o número de arestas é $|E| = \frac{\text{não-laços}}{2} + \text{laços}$, e cada auto-laço soma $+2$ ao grau do vértice.
-  - **Direcionado / Dígrafo (`EhDirecionado = true`):** Transições de fila ou setlist com sentido único ($u \rightarrow v$), calculando separadamente **Grau de Entrada** ($d^-(v)$) e **Grau de Saída** ($d^+(v)$).
+  - **Direcionado / Dígrafo (`EhDirecionado = true`):** Transições de fila ou setlist com sentido único ($u \rightarrow v$), calculando separadamente **Grau de Entrada** ($d^-(v)$) e **Grau de Saída** ($d^+(v)$), além da média por sentido ($\overline{d^-} = \overline{d^+} = \frac{|E|}{|V|}$).
 - **Quanto à Ponderação:**
   - **Ponderado (`EhPonderado = true`):** Arestas possuem afinidade entre `1%` e `100%`.
   - **Não-Ponderado (`EhPonderado = false`):** Peso unitário (`1`).
@@ -38,7 +38,7 @@ Um catálogo musical é modelado como um grafo $G = (V, E)$, onde:
 - **Propriedades e Métricas Topológicas:**
   - **Grafo Completo ($K_n$):** Verifica se não há laços nem arestas paralelas e se todo vértice está conectado a todos os outros $n - 1$ vértices.
   - **Ciclicidade e DAG:** Identifica grafos cíclicos vs. **DAG** (*Directed Acyclic Graph* — fluxo progressivo sem retorno).
-  - **Grau Médio e Densidade Relativa (%):** Calcula $\frac{\sum d(v)}{|V|}$ e a porcentagem de ocupação em relação ao máximo de arestas de um grafo simples ($n(n-1)$ para dígrafos e $\frac{n(n-1)}{2}$ para não-direcionados).
+  - **Grau Médio e Densidade Relativa (%):** Calcula $\frac{\sum d(v)}{|V|}$ e a porcentagem de pares distintos sem auto-laço presentes em relação ao máximo possível de um grafo simples ($n(n-1)$ para dígrafos e $\frac{n(n-1)}{2}$ para não-direcionados), mantendo a densidade sempre no intervalo $[0\%, 100\%]$ mesmo em multigrafos/pseudografos e atingindo `100.0%` em grafos completos $K_n$.
 
 ---
 
@@ -53,18 +53,19 @@ Um catálogo musical é modelado como um grafo $G = (V, E)$, onde:
    - Em grafos **não-direcionados**, detecta arestas paralelas ou aplica **DFS com rastreamento de pai** (`DfsCicloNaoDirecionado`) para identificar arestas de retorno.
    - Em **dígrafos**, aplica **DFS com coloração em 3 estados** (`DfsCicloDirecionado`: `0` = não visitado, `1` = ativo na pilha de recursão, `2` = finalizado), confirmando ciclo ao encontrar um vértice no estado `1` ou comprovando que o dígrafo é um **DAG**.
 
-3. **Fila de Transição por Menor Caminho (`GerarFilaTransicao`):**
-   - Implementa **Busca em Largura (BFS)** utilizando `Queue<string>` e mapa de predecessores (`anterior`) para reconstruir o caminho com o menor número de transições entre duas músicas escolhidas.
+3. **Fila de Transição — BFS e Algoritmo de Dijkstra (`GerarFilaTransicao` e `GerarFilaTransicaoDijkstra`):**
+   - **BFS (`Queue<string>`):** Encontra o caminho com o **menor número de saltos** (transições) entre duas músicas, reconstruindo a rota pelo dicionário de predecessores (`anterior`).
+   - **Dijkstra (`PriorityQueue<string, int>`):** Em grafos ponderados, encontra a **rota de maior afinidade total** convertendo a afinidade percentual em custo de fricção (`101 - Peso >= 1`), selecionando automaticamente a melhor aresta mesmo quando há arestas paralelas e exibindo a afinidade média do percurso.
 
 4. **Motor de Recomendação de 1º e 2º Grau (`RecomendarAPartirDe`):**
-   - **1º Grau (Diretas):** Lista os vizinhos diretos ordenados pela maior afinidade (%).
+   - **1º Grau (Diretas):** Lista os vizinhos diretos (excluindo auto-laços, que são sinalizados separadamente como *Modo Repeat* ativo) ordenados pela maior afinidade (%).
    - **2º Grau (Descobertas):** Explora os vizinhos dos vizinhos (excluindo a faixa atual e conexões já diretas), somando os pesos (em grafos ponderados) ou a quantidade de pontes em comum (em grafos não-ponderados).
 
 5. **Playlist Automática Contínua (`GerarPlaylistAutomatica`):**
    - Estratégia gulosa (*Greedy*): partindo da música escolhida, seleciona sempre a próxima faixa ainda não visitada (`HashSet<string>`) conectada pela aresta de maior peso, exibindo a afinidade média das transições.
 
 6. **Auto-Conexão por Regras Musicais (`AutoConectarPorRegra`):**
-   - Percorre os pares de faixas do catálogo e cria automaticamente conexões por **Mesmo Gênero** (`78%`), **Mesmo Artista** (`92%`) ou **BPM Compatível** (diferença $\le 8$ BPM, com afinidade proporcional entre `65%` e `98%`).
+   - Percorre os pares de faixas do catálogo e cria automaticamente conexões por **Mesmo Gênero** (`78%`), **Mesmo Artista** (`92%`) ou **BPM Compatível** (diferença $\le 8$ BPM, com afinidade proporcional entre `65%` e `98%` e fluxo progressivo do menor para o maior BPM em dígrafos).
 
 ---
 
@@ -77,7 +78,7 @@ A opção **`[13]`** permite alternar instantaneamente entre 6 cenários pré-co
 | `[1]` | **Mega Catálogo de Streaming** *(padrão)* | 18 | Direcionado | Ponderado | Multigrafo + Pseudografo (cíclico) |
 | `[2]` | **Ecossistema Pop & Synth** | 12 | Não-Direcionado | Não-Ponderado | Grafo Simples e Conexo |
 | `[3]` | **Histórico Global de Fila** | 12 | Direcionado | Ponderado | Dígrafo Cíclico e Desconexo |
-| `[4]` | **Álbum Conceitual Completo $K_6$** | 6 | Não-Direcionado | Não-Ponderado | Grafo Completo $K_6$ Simples |
+| `[4]` | **Álbum Conceitual Completo $K_6$** | 6 | Não-Direcionado | Não-Ponderado | Grafo Completo $K_6$ Simples (`100.0%` densidade) |
 | `[5]` | **Setlist de Festival (DAG)** | 10 | Direcionado | Ponderado | Dígrafo Acíclico (**DAG**) |
 | `[6]` | **Mega Mix Treino + Repeat** | 10 | Não-Direcionado | Ponderado | Multigrafo + Pseudografo |
 
@@ -85,20 +86,23 @@ A opção **`[13]`** permite alternar instantaneamente entre 6 cenários pré-co
 
 ## 🎮 Funcionalidades do Menu Interativo
 
+Todas as entradas de seleção de música aceitam tanto o **título completo** quanto o **código rápido (`M1..Mn`)** exibido no catálogo e na matriz:
+
 - **`[1]`** Exibir **Lista de Adjacência** e **Matriz de Adjacência** coloridas no terminal.
 - **`[2]`** Exibir **Diagnóstico Completo** (direção, ponderação, tipo estrutural, conectividade, ciclicidade, $K_n$, grau médio, densidade, contagem por relacionamento e tabela de graus).
-- **`[3]`** Listar o catálogo completo de músicas (título, artista, gênero, ano, BPM e álbum).
+- **`[3]`** Listar o catálogo completo de músicas (`M1..Mn`, título, artista, gênero, ano, BPM e álbum).
 - **`[4]`** Cadastrar nova música (vértice).
 - **`[5]`** Conectar duas músicas escolhendo entre os **14 tipos de relacionamento**.
 - **`[6]`** Ativar **Modo Repeat** em uma música (cria um auto-laço e transforma o grafo em Pseudografo).
 - **`[7]`** Auto-conectar o catálogo por regras (Mesmo Gênero, Mesmo Artista ou BPM Compatível).
 - **`[8]`** Filtrar conexões por tipo de relacionamento.
-- **`[9]`** Remover música (vértice) ou conexão (aresta).
+- **`[9]`** Remover música (vértice) ou escolher qual conexão remover entre um par (com suporte a arestas paralelas em multigrafos).
 - **`[10]`** Rodar o **Motor de Recomendação** (1º e 2º grau).
 - **`[11]`** Gerar **Playlist Automática Contínua** por maior afinidade.
-- **`[12]`** Gerar **Fila de Transição** entre duas músicas via **BFS** (menor caminho).
+- **`[12]`** Gerar **Fila de Transição** entre duas músicas comparando **BFS** (menor número de saltos) e **Dijkstra** (maior afinidade média).
 - **`[13]`** Carregar um dos **6 Cenários Prontos**.
 - **`[14]`** Criar um **Novo Grafo Musical do Zero** escolhendo livremente direção e ponderação.
+- **`[15]`** Exportar **Relatório Completo em `.TXT`** (`relatorio_soundgraph.txt`) com diagnóstico, catálogo, graus, lista e matriz de adjacência.
 
 ---
 
@@ -114,8 +118,8 @@ A opção **`[13]`** permite alternar instantaneamente entre 6 cenários pré-co
   • Conectividade        : Fracamente Conexo (1 componente(s))
   • Ciclicidade          : Cíclico (rádio/loop contínuo detectado)
   • Grafo Completo (Kn)  : Não
-  • Grau Médio           : 3.89
-  • Densidade Relativa   : 11.4%
+  • Grau Médio (Ent+Saí) : 3,89 (Entrada = Saída = 1,94)
+  • Densidade Relativa   : 9,8% (pares distintos sem laço)
 ```
 
 ---
