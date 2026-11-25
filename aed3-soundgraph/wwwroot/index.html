@@ -1,0 +1,1562 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SoundGraph Pro — Grafos em C# (AED3)</title>
+  <style>
+    :root {
+      --bg-dark: #090d16;
+      --bg-panel: #111827;
+      --bg-card: #1a2333;
+      --bg-hover: #243047;
+      --border: #293548;
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+      --green: #1db954;
+      --green-soft: rgba(29, 185, 84, 0.18);
+      --cyan: #38bdf8;
+      --purple: #c084fc;
+      --amber: #f59e0b;
+      --red: #f87171;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+      background: var(--bg-dark);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* TOPO */
+    header {
+      background: var(--bg-panel);
+      border-bottom: 1px solid var(--border);
+      padding: 10px 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .brand-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, var(--green), #059669);
+      display: grid;
+      place-items: center;
+      font-size: 19px;
+      font-weight: bold;
+      color: #04130a;
+      box-shadow: 0 0 16px rgba(29, 185, 84, 0.35);
+    }
+
+    .brand h1 {
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: 0.2px;
+    }
+
+    .brand span {
+      display: block;
+      font-size: 11.5px;
+      color: var(--muted);
+    }
+
+    .presets-bar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .preset-btn {
+      background: var(--bg-card);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 6px 10px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .preset-btn:hover {
+      background: var(--bg-hover);
+      border-color: #3b4d6b;
+    }
+
+    .preset-btn.active {
+      background: var(--green-soft);
+      border-color: var(--green);
+      color: #6ee7b7;
+      font-weight: 600;
+    }
+
+    .preset-btn.novo {
+      border-color: var(--cyan);
+      color: var(--cyan);
+    }
+
+    /* FAIXA DE STATUS DE TEORIA DOS GRAFOS */
+    .status-strip {
+      background: #0d1422;
+      border-bottom: 1px solid var(--border);
+      padding: 7px 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+      font-size: 12px;
+    }
+
+    .badges {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      flex-wrap: wrap;
+    }
+
+    .badge {
+      padding: 3px 9px;
+      border-radius: 999px;
+      font-weight: 600;
+      font-size: 11.5px;
+      border: 1px solid transparent;
+    }
+
+    .b-green { background: rgba(29, 185, 84, 0.14); color: #4ade80; border-color: rgba(74, 222, 128, 0.3); }
+    .b-cyan { background: rgba(56, 189, 248, 0.14); color: #38bdf8; border-color: rgba(56, 189, 248, 0.3); }
+    .b-purple { background: rgba(192, 132, 252, 0.16); color: #d8b4fe; border-color: rgba(192, 132, 252, 0.35); }
+    .b-amber { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border-color: rgba(251, 191, 36, 0.35); }
+    .b-muted { background: var(--bg-card); color: var(--muted); border-color: var(--border); }
+
+    /* ÁREA PRINCIPAL */
+    main {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 1fr 420px;
+      min-height: 0;
+    }
+
+    /* CANVAS DO GRAFO */
+    .graph-pane {
+      position: relative;
+      background: radial-gradient(circle at center, #111b2e 0%, #090d16 100%);
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      min-height: 0;
+    }
+
+    .canvas-toolbar {
+      position: absolute;
+      top: 12px;
+      left: 14px;
+      right: 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      pointer-events: none;
+      z-index: 5;
+    }
+
+    .canvas-hint {
+      background: rgba(17, 24, 39, 0.85);
+      backdrop-filter: blur(6px);
+      border: 1px solid var(--border);
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      color: var(--muted);
+      pointer-events: auto;
+    }
+
+    .canvas-actions {
+      display: flex;
+      gap: 6px;
+      pointer-events: auto;
+    }
+
+    .mini-btn {
+      background: rgba(26, 35, 51, 0.9);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      padding: 6px 10px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .mini-btn:hover { background: var(--bg-hover); }
+
+    #grafoSvg {
+      width: 100%;
+      height: 100%;
+      user-select: none;
+      cursor: grab;
+    }
+
+    #grafoSvg:active { cursor: grabbing; }
+
+    .graph-legend {
+      position: absolute;
+      bottom: 12px;
+      left: 14px;
+      background: rgba(17, 24, 39, 0.88);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 6px 12px;
+      display: flex;
+      gap: 14px;
+      font-size: 11.5px;
+      color: var(--muted);
+      flex-wrap: wrap;
+    }
+
+    .dot {
+      display: inline-block;
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      margin-right: 5px;
+      vertical-align: middle;
+    }
+
+    /* PAINEL LATERAL DIREITO */
+    .side-pane {
+      background: var(--bg-panel);
+      border-left: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    .tabs {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      border-bottom: 1px solid var(--border);
+      background: #0d1320;
+    }
+
+    .tab-btn {
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: var(--muted);
+      padding: 11px 6px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .tab-btn:hover { color: var(--text); }
+
+    .tab-btn.active {
+      color: var(--green);
+      border-bottom-color: var(--green);
+      background: rgba(29, 185, 84, 0.06);
+    }
+
+    .tab-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 14px;
+      display: none;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .tab-content.active { display: flex; }
+
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px;
+    }
+
+    .card h3 {
+      font-size: 13px;
+      font-weight: 700;
+      margin-bottom: 8px;
+      color: #e2e8f0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .card p.sub {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.45;
+      margin-bottom: 8px;
+    }
+
+    /* PLAYER CARD */
+    .now-playing {
+      background: linear-gradient(145deg, #132820, #162032);
+      border: 1px solid rgba(29, 185, 84, 0.4);
+    }
+
+    .song-title {
+      font-size: 17px;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .song-meta {
+      font-size: 12px;
+      color: #cbd5e1;
+      margin-top: 3px;
+    }
+
+    .player-btns {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .btn {
+      border: 1px solid var(--border);
+      background: var(--bg-hover);
+      color: var(--text);
+      padding: 8px 10px;
+      border-radius: 8px;
+      font-size: 12.5px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+      text-align: center;
+    }
+
+    .btn:hover { filter: brightness(1.12); }
+    .btn-green { background: var(--green); color: #04130a; border-color: var(--green); }
+    .btn-purple { background: rgba(192, 132, 252, 0.2); color: #e9d5ff; border-color: var(--purple); }
+    .btn-cyan { background: rgba(56, 189, 248, 0.18); color: #7dd3fc; border-color: var(--cyan); }
+    .btn-amber { background: rgba(245, 158, 11, 0.2); color: #fde68a; border-color: var(--amber); }
+
+    /* LISTA DE RECOMENDAÇÕES */
+    .rec-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .rec-item {
+      background: #121a28;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 10px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      transition: border-color 0.15s, background 0.15s;
+    }
+
+    .rec-item:hover {
+      border-color: var(--green);
+      background: #172336;
+    }
+
+    .rec-item .name { font-size: 13px; font-weight: 600; }
+    .rec-item .ctx { font-size: 11px; color: var(--muted); }
+
+    .pct-pill {
+      font-size: 11.5px;
+      font-weight: 700;
+      color: #4ade80;
+      background: rgba(29, 185, 84, 0.14);
+      padding: 3px 7px;
+      border-radius: 6px;
+      white-space: nowrap;
+    }
+
+    /* FORMULÁRIOS */
+    label {
+      display: block;
+      font-size: 11.5px;
+      color: var(--muted);
+      margin-bottom: 4px;
+      margin-top: 8px;
+    }
+
+    input, select {
+      width: 100%;
+      background: #0d1320;
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 7px 9px;
+      border-radius: 7px;
+      font-size: 12.5px;
+    }
+
+    .row-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    /* ROTA RESULTADO */
+    .route-box {
+      border-radius: 8px;
+      padding: 9px 10px;
+      margin-top: 8px;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .route-bfs {
+      background: rgba(56, 189, 248, 0.1);
+      border: 1px solid rgba(56, 189, 248, 0.35);
+    }
+
+    .route-djk {
+      background: rgba(245, 158, 11, 0.1);
+      border: 1px solid rgba(245, 158, 11, 0.35);
+    }
+
+    /* MATRIZ DE ADJACÊNCIA */
+    .matrix-wrap {
+      overflow-x: auto;
+      max-width: 100%;
+    }
+
+    table.matrix {
+      border-collapse: collapse;
+      font-size: 11px;
+      width: 100%;
+      text-align: center;
+    }
+
+    table.matrix th, table.matrix td {
+      border: 1px solid var(--border);
+      padding: 4px 5px;
+    }
+
+    table.matrix th {
+      background: #0f172a;
+      color: var(--cyan);
+      font-weight: 700;
+    }
+
+    table.matrix td.has-edge {
+      background: rgba(29, 185, 84, 0.18);
+      color: #86efac;
+      font-weight: 700;
+    }
+
+    table.matrix td.has-loop {
+      background: rgba(192, 132, 252, 0.25);
+      color: #e9d5ff;
+      font-weight: 700;
+    }
+
+    table.matrix td.empty { color: #475569; }
+
+    /* DIAGNÓSTICO DIDÁTICO */
+    .diag-item {
+      padding: 7px 0;
+      border-bottom: 1px solid rgba(41, 53, 72, 0.6);
+      font-size: 12px;
+    }
+
+    .diag-item:last-child { border-bottom: none; }
+    .diag-item strong { color: #e2e8f0; }
+    .diag-item span.val { color: #4ade80; font-weight: 600; }
+    .diag-item div.exp { color: var(--muted); font-size: 11.5px; margin-top: 2px; }
+
+    /* TOAST */
+    #toast {
+      position: fixed;
+      bottom: 18px;
+      right: 440px;
+      background: #1e293b;
+      color: #fff;
+      border: 1px solid var(--green);
+      padding: 9px 14px;
+      border-radius: 8px;
+      font-size: 12.5px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s;
+      z-index: 50;
+    }
+
+    #toast.show { opacity: 1; }
+
+    /* MODAL NOVO GRAFO */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.65);
+      display: none;
+      place-items: center;
+      z-index: 100;
+    }
+
+    .modal-backdrop.open { display: grid; }
+
+    .modal {
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px;
+      width: 360px;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="brand">
+      <div class="brand-icon">♪</div>
+      <div>
+        <h1>SoundGraph Pro</h1>
+        <span>Algoritmos e Estrutura de Dados 3 — Grafos em C#</span>
+      </div>
+    </div>
+
+    <div class="presets-bar">
+      <button class="preset-btn active" data-preset="1" onclick="carregarPreset(1)">1. Streaming (Multi+Pseudo)</button>
+      <button class="preset-btn" data-preset="2" onclick="carregarPreset(2)">2. Grafo Simples</button>
+      <button class="preset-btn" data-preset="3" onclick="carregarPreset(3)">3. Desconexo (3 Ilhas)</button>
+      <button class="preset-btn" data-preset="4" onclick="carregarPreset(4)">4. Completo K6</button>
+      <button class="preset-btn" data-preset="5" onclick="carregarPreset(5)">5. Festival (DAG)</button>
+      <button class="preset-btn" data-preset="6" onclick="carregarPreset(6)">6. Treino + Repeat</button>
+      <button class="preset-btn novo" onclick="abrirModalNovo()">+ Criar do Zero</button>
+    </div>
+  </header>
+
+  <div class="status-strip">
+    <div class="badges" id="badgesBar"></div>
+    <div style="color: var(--muted);" id="resumoMetricas"></div>
+  </div>
+
+  <main>
+    <!-- MAPA VISUAL INTERATIVO DO GRAFO -->
+    <section class="graph-pane">
+      <div class="canvas-toolbar">
+        <div class="canvas-hint" id="dicaCanvas">
+          💡 <strong>Clique em uma bolinha</strong> para tocar a música e ver suas conexões, ou <strong>arraste</strong> para organizar!
+        </div>
+        <div class="canvas-actions">
+          <button class="mini-btn" id="btnLimparRota" style="display:none; border-color: var(--amber); color: #fde68a;" onclick="limparDestaqueRota()">✕ Limpar Rota</button>
+          <button class="mini-btn" onclick="alternarRotulosArestas()" id="btnRotulos">🏷️ Rótulos: ON</button>
+          <button class="mini-btn" onclick="recalcularLayout()">🔄 Reorganizar Mapa</button>
+        </div>
+      </div>
+
+      <svg id="grafoSvg"></svg>
+
+      <div class="graph-legend">
+        <span><i class="dot" style="background:#1db954;"></i>Música Atual / 1º Grau</span>
+        <span><i class="dot" style="background:#38bdf8;"></i>Descoberta 2º Grau</span>
+        <span><i class="dot" style="background:#c084fc;"></i>Modo Repeat (Auto-laço)</span>
+        <span><i class="dot" style="background:#f59e0b;"></i>Rota Destacada (BFS / Dijkstra / Playlist)</span>
+      </div>
+    </section>
+
+    <!-- PAINEL LATERAL -->
+    <aside class="side-pane">
+      <div class="tabs">
+        <button class="tab-btn active" onclick="abrirAba('player', this)">🎧 Player</button>
+        <button class="tab-btn" onclick="abrirAba('algoritmos', this)">🧭 Rotas</button>
+        <button class="tab-btn" onclick="abrirAba('editar', this)">✏️ Editar</button>
+        <button class="tab-btn" onclick="abrirAba('teoria', this)">📊 Matriz</button>
+      </div>
+
+      <!-- ABA 1: PLAYER & RECOMENDAÇÕES -->
+      <div class="tab-content active" id="aba-player">
+        <div class="card now-playing" id="cardTocando">
+          <h3>
+            <span>TOCANDO AGORA (VÉRTICE ATUAL)</span>
+            <span id="badgeRepeatAtual" class="badge b-purple" style="display:none;">🔁 Repeat Ativo</span>
+          </h3>
+          <div class="song-title" id="npTitulo">Selecione uma música</div>
+          <div class="song-meta" id="npMeta">—</div>
+          <div class="song-meta" id="npGraus" style="color:#86efac; margin-top:5px;"></div>
+
+          <div class="player-btns">
+            <button class="btn btn-green" onclick="autoDj()">⚡ Auto-DJ (Próxima)</button>
+            <button class="btn btn-purple" onclick="alternarRepeatAtual()">🔁 Ligar/Desligar Repeat</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>1º Grau — Próximas Conectadas <span class="badge b-green" id="qtdDiretas">0</span></h3>
+          <p class="sub">Músicas ligadas diretamente por uma aresta. Clique em qualquer uma para atravessar a seta:</p>
+          <div class="rec-list" id="listaDiretas"></div>
+        </div>
+
+        <div class="card">
+          <h3>2º Grau — Descobertas (Pontes) <span class="badge b-cyan" id="qtdDescobertas">0</span></h3>
+          <p class="sub">Músicas a 2 passos de distância ("vizinhas das suas vizinhas"):</p>
+          <div class="rec-list" id="listaDescobertas"></div>
+        </div>
+      </div>
+
+      <!-- ABA 2: ALGORITMOS (BFS, DIJKSTRA E PLAYLIST) -->
+      <div class="tab-content" id="aba-algoritmos">
+        <div class="card">
+          <h3>Comparar Menor Caminho: BFS vs. Dijkstra</h3>
+          <p class="sub">
+            <strong>BFS</strong> acha o caminho com <em>menos pulos</em>. Já <strong>Dijkstra</strong> soma os pesos e escolhe a transição de <em>maior afinidade (%)</em>!
+          </p>
+          <label>Música de Origem</label>
+          <select id="selRotaOrigem"></select>
+
+          <label>Música de Destino</label>
+          <select id="selRotaDestino"></select>
+
+          <button class="btn btn-cyan" style="width:100%; margin-top:10px;" onclick="calcularRotas()">🔍 Traçar e Comparar no Mapa</button>
+
+          <div id="resultadoRotas"></div>
+        </div>
+
+        <div class="card">
+          <h3>Gerar Playlist Contínua (Algoritmo Guloso)</h3>
+          <p class="sub">Escolhe sempre a aresta de maior afinidade ainda não tocada e numera a ordem no grafo:</p>
+          <div class="row-2">
+            <div>
+              <label>Começar em</label>
+              <select id="selPlaylistInicio"></select>
+            </div>
+            <div>
+              <label>Tamanho</label>
+              <select id="selPlaylistTam">
+                <option value="4">4 músicas</option>
+                <option value="5" selected>5 músicas</option>
+                <option value="7">7 músicas</option>
+              </select>
+            </div>
+          </div>
+          <button class="btn btn-green" style="width:100%; margin-top:10px;" onclick="gerarPlaylist()">▶ Montar Playlist no Mapa</button>
+          <div id="resultadoPlaylist"></div>
+        </div>
+      </div>
+
+      <!-- ABA 3: EDITAR GRAFO -->
+      <div class="tab-content" id="aba-editar">
+        <div class="card">
+          <h3>Conectar Duas Músicas (Criar Aresta)</h3>
+          <div class="row-2">
+            <div>
+              <label>Origem</label>
+              <select id="selConOrigem"></select>
+            </div>
+            <div>
+              <label>Destino</label>
+              <select id="selConDestino"></select>
+            </div>
+          </div>
+          <div class="row-2">
+            <div>
+              <label>Motivo / Relacionamento</label>
+              <select id="selConTipo"></select>
+            </div>
+            <div id="boxPesoConexao">
+              <label>Afinidade: <strong id="lblPesoVal">90%</strong></label>
+              <input type="range" id="rngPeso" min="10" max="100" value="90" oninput="document.getElementById('lblPesoVal').textContent=this.value+'%'" />
+            </div>
+          </div>
+          <button class="btn btn-green" style="width:100%; margin-top:10px;" onclick="criarConexao()">+ Criar Ligação</button>
+        </div>
+
+        <div class="card">
+          <h3>Cadastrar Nova Música (Novo Vértice)</h3>
+          <div class="row-2">
+            <div>
+              <label>Nome da Música</label>
+              <input type="text" id="inpTitulo" placeholder="Ex: Billie Jean" />
+            </div>
+            <div>
+              <label>Artista</label>
+              <input type="text" id="inpArtista" placeholder="Ex: Michael Jackson" />
+            </div>
+          </div>
+          <div class="row-2">
+            <div>
+              <label>Gênero</label>
+              <input type="text" id="inpGenero" placeholder="Ex: Pop" />
+            </div>
+            <div>
+              <label>BPM</label>
+              <input type="number" id="inpBpm" value="120" min="40" max="260" />
+            </div>
+          </div>
+          <button class="btn" style="width:100%; margin-top:10px;" onclick="adicionarMusica()">+ Adicionar ao Grafo</button>
+        </div>
+
+        <div class="card">
+          <h3>Auto-Conectar por Regra</h3>
+          <p class="sub">O C# percorre os pares e liga automaticamente quem combina:</p>
+          <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px;">
+            <button class="btn" onclick="autoConectar(2)">Mesmo Artista</button>
+            <button class="btn" onclick="autoConectar(1)">Mesmo Gênero</button>
+            <button class="btn" onclick="autoConectar(3)">BPM Próximo</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Remover Música ou Conexão</h3>
+          <div class="row-2">
+            <div>
+              <select id="selRemoverMusica"></select>
+            </div>
+            <button class="btn" style="color:var(--red); border-color:rgba(248,113,113,0.4);" onclick="removerMusica()">Excluir Música</button>
+          </div>
+          <label style="margin-top:10px;">Ou clique para remover uma conexão específica:</label>
+          <div class="rec-list" id="listaRemoverConexoes" style="max-height:150px; overflow-y:auto;"></div>
+        </div>
+      </div>
+
+      <!-- ABA 4: TEORIA, MATRIZ & LISTA -->
+      <div class="tab-content" id="aba-teoria">
+        <div class="card">
+          <h3>
+            <span>Diagnóstico Explicado (AED3)</span>
+            <a href="/api/relatorio" class="badge b-cyan" style="text-decoration:none;">⬇ Baixar .TXT</a>
+          </h3>
+          <div id="boxDiagnosticoExplicado"></div>
+        </div>
+
+        <div class="card">
+          <h3>Matriz de Adjacência (N × N)</h3>
+          <p class="sub">Passe o mouse sobre <code>M1..Mn</code> para ver o nome da música. Verde = conexão | Roxo = Repeat | <code>*</code> = paralelas:</p>
+          <div class="matrix-wrap" id="boxMatriz"></div>
+        </div>
+
+        <div class="card">
+          <h3>Lista de Adjacência</h3>
+          <div id="boxListaAdj" style="font-size:12px; line-height:1.6; color:#cbd5e1;"></div>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <!-- MODAL CRIAR DO ZERO -->
+  <div class="modal-backdrop" id="modalNovo">
+    <div class="modal">
+      <h3 style="margin-bottom:10px;">Criar Novo Grafo do Zero</h3>
+      <label>Nome do Cenário</label>
+      <input type="text" id="novoNome" value="Minha Playlist" />
+
+      <label>Direção das Ligações</label>
+      <select id="novoDirecionado">
+        <option value="true">Direcionado (Dígrafo: setas de mão única →)</option>
+        <option value="false">Não-Direcionado (Afinidade mútua ↔)</option>
+      </select>
+
+      <label>Ponderação (Pesos)</label>
+      <select id="novoPonderado">
+        <option value="true">Ponderado (Com % de afinidade)</option>
+        <option value="false">Não-Ponderado (Sem peso)</option>
+      </select>
+
+      <div class="row-2" style="margin-top:14px;">
+        <button class="btn" onclick="fecharModalNovo()">Cancelar</button>
+        <button class="btn btn-green" onclick="confirmarNovoGrafo()">Criar Grafo</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast"></div>
+
+  <script>
+    let estado = null;
+    let musicaSelecionada = null;
+    let recomendacaoAtual = null;
+    let posicoes = {};
+    let mostrarRotulos = true;
+    let rotaDestacada = null; // { caminho: [], cor: '#f59e0b', titulo: '' }
+    let arrastandoNo = null;
+    let moveuArrasto = false;
+
+    async function api(url, opcoes = {}) {
+      const resp = await fetch(url, {
+        headers: { 'Content-Type': 'application/json' },
+        ...opcoes
+      });
+      const dados = await resp.json();
+      if (!resp.ok) throw new Error(dados.erro || 'Erro na operação');
+      return dados;
+    }
+
+    function mostrarToast(msg) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.classList.add('show');
+      clearTimeout(t._timer);
+      t._timer = setTimeout(() => t.classList.remove('show'), 3000);
+    }
+
+    function abrirAba(id, btn) {
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+      document.getElementById('aba-' + id).classList.add('active');
+      btn.classList.add('active');
+    }
+
+    async function iniciar() {
+      estado = await api('/api/estado');
+      calcularPosicoesIniciais();
+      if (estado.vertices.length > 0) {
+        await selecionarMusica(estado.vertices[0].titulo, false);
+      }
+      atualizarInterfaceCompleta();
+      window.addEventListener('resize', () => {
+        calcularPosicoesIniciais();
+        desenharGrafoSvg();
+      });
+    }
+
+    async function carregarPreset(id) {
+      rotaDestacada = null;
+      document.getElementById('btnLimparRota').style.display = 'none';
+      document.getElementById('resultadoRotas').innerHTML = '';
+      document.getElementById('resultadoPlaylist').innerHTML = '';
+
+      estado = await api('/api/preset/' + id, { method: 'POST' });
+      posicoes = {};
+      calcularPosicoesIniciais();
+
+      if (estado.vertices.length > 0) {
+        const inicial = id === 5 ? 'Intro Acústica' : estado.vertices[0].titulo;
+        await selecionarMusica(inicial, false);
+      } else {
+        musicaSelecionada = null;
+        recomendacaoAtual = null;
+      }
+
+      atualizarInterfaceCompleta();
+
+      if (id === 5) {
+        document.getElementById('selRotaOrigem').value = 'Vibe Pop';
+        document.getElementById('selRotaDestino').value = 'Clímax Rock';
+      }
+      mostrarToast('Cenário carregado: ' + estado.nomeCenario);
+    }
+
+    function calcularPosicoesIniciais() {
+      if (!estado || estado.vertices.length === 0) return;
+      const svg = document.getElementById('grafoSvg');
+      const W = svg.clientWidth || 800;
+      const H = svg.clientHeight || 560;
+      const cx = W / 2;
+      const cy = H / 2 + 12;
+      const verts = estado.vertices;
+      const d = estado.diagnostico;
+
+      // Caso 1: Grafo Desconexo -> agrupa cada componente em sua própria ilha!
+      if (d.componentesConexas > 1) {
+        const grupos = {};
+        verts.forEach(v => {
+          (grupos[v.componente] = grupos[v.componente] || []).push(v);
+        });
+        const chaves = Object.keys(grupos);
+        const centros = [
+          { x: W * 0.27, y: H * 0.50, r: Math.min(W, H) * 0.20 },
+          { x: W * 0.72, y: H * 0.34, r: Math.min(W, H) * 0.16 },
+          { x: W * 0.72, y: H * 0.74, r: Math.min(W, H) * 0.13 },
+          { x: W * 0.50, y: H * 0.25, r: Math.min(W, H) * 0.14 }
+        ];
+        chaves.forEach((k, idxGrupo) => {
+          const lista = grupos[k];
+          const c = centros[idxGrupo % centros.length];
+          lista.forEach((v, i) => {
+            const ang = -Math.PI / 2 + (2 * Math.PI * i) / lista.length;
+            const raio = lista.length === 1 ? 0 : (lista.length === 2 ? c.r * 0.75 : c.r);
+            posicoes[v.titulo] = {
+              x: c.x + Math.cos(ang) * raio,
+              y: c.y + Math.sin(ang) * raio
+            };
+          });
+        });
+        return;
+      }
+
+      // Caso 2: Dígrafo Acíclico (DAG) -> camadas da esquerda para a direita!
+      if (estado.ehDirecionado && !d.possuiCiclo) {
+        const nivel = {};
+        verts.forEach(v => nivel[v.titulo] = 0);
+        for (let iter = 0; iter < verts.length; iter++) {
+          estado.arestas.forEach(a => {
+            if (!a.ehLaco && nivel[a.origem] + 1 > nivel[a.destino]) {
+              nivel[a.destino] = nivel[a.origem] + 1;
+            }
+          });
+        }
+        const colunas = {};
+        let maxNivel = 0;
+        verts.forEach(v => {
+          const nv = nivel[v.titulo];
+          if (nv > maxNivel) maxNivel = nv;
+          (colunas[nv] = colunas[nv] || []).push(v);
+        });
+        const margemX = 95;
+        const largUtil = Math.max(200, W - margemX * 2);
+        Object.keys(colunas).forEach(nvStr => {
+          const nv = Number(nvStr);
+          const lista = colunas[nv];
+          const x = maxNivel === 0 ? cx : margemX + (nv / maxNivel) * largUtil;
+          lista.forEach((v, i) => {
+            const y = ((i + 1) / (lista.length + 1)) * (H - 70) + 45;
+            posicoes[v.titulo] = { x, y };
+          });
+        });
+        return;
+      }
+
+      // Caso 3: Elipse / Polígono espaçado (ótimo para K6, Simples e Streaming)
+      const rx = Math.max(150, W * 0.36);
+      const ry = Math.max(130, H * 0.35);
+      verts.forEach((v, i) => {
+        const ang = -Math.PI / 2 + (2 * Math.PI * i) / verts.length;
+        posicoes[v.titulo] = {
+          x: cx + Math.cos(ang) * rx,
+          y: cy + Math.sin(ang) * ry
+        };
+      });
+    }
+
+    function recalcularLayout() {
+      posicoes = {};
+      calcularPosicoesIniciais();
+      desenharGrafoSvg();
+      mostrarToast('Mapa reorganizado!');
+    }
+
+    function alternarRotulosArestas() {
+      mostrarRotulos = !mostrarRotulos;
+      document.getElementById('btnRotulos').textContent = mostrarRotulos ? '🏷️ Rótulos: ON' : '🏷️ Rótulos: OFF';
+      desenharGrafoSvg();
+    }
+
+    async function selecionarMusica(titulo, exibirAviso = true) {
+      musicaSelecionada = titulo;
+      try {
+        recomendacaoAtual = await api('/api/recomendar?musica=' + encodeURIComponent(titulo));
+      } catch {
+        recomendacaoAtual = null;
+      }
+      renderizarPainelPlayer();
+      desenharGrafoSvg();
+      if (exibirAviso) mostrarToast('Tocando: ' + titulo);
+    }
+
+    function atualizarInterfaceCompleta() {
+      // Botões de preset ativos
+      document.querySelectorAll('.preset-btn[data-preset]').forEach(btn => {
+        btn.classList.toggle('active', Number(btn.dataset.preset) === estado.presetId);
+      });
+
+      const d = estado.diagnostico;
+
+      // Badges no topo
+      const badgesHtml = [
+        `<span class="badge b-cyan">${estado.ehDirecionado ? 'Direcionado (Dígrafo →)' : 'Não-Direcionado (↔)'}</span>`,
+        `<span class="badge ${estado.ehPonderado ? 'b-green' : 'b-muted'}">${estado.ehPonderado ? 'Ponderado (%)' : 'Sem Peso'}</span>`,
+        `<span class="badge b-purple">${d.tipoEstruturalCurto}</span>`,
+        `<span class="badge ${d.componentesConexas > 1 ? 'b-amber' : 'b-green'}">${d.conectividade}${d.componentesConexas > 1 ? ` (${d.componentesConexas} ilhas)` : ''}</span>`,
+        `<span class="badge ${d.possuiCiclo ? 'b-muted' : 'b-amber'}">${d.possuiCiclo ? 'Cíclico' : (estado.ehDirecionado ? 'Acíclico (DAG)' : 'Acíclico')}</span>`,
+        d.ehCompleto ? `<span class="badge b-amber">Completo K${d.totalVertices}</span>` : ''
+      ].join('');
+      document.getElementById('badgesBar').innerHTML = badgesHtml;
+      document.getElementById('resumoMetricas').textContent =
+        `${d.totalVertices} músicas (|V|) · ${d.totalArestas} conexões (|E|) · Densidade: ${d.densidadePercentual}%`;
+
+      // Preenche todos os selects de músicas
+      const opcoesMusicas = estado.vertices
+        .map(v => `<option value="${escaparHtml(v.titulo)}">${v.codigo} — ${escaparHtml(v.titulo)} (${escaparHtml(v.artista)})</option>`)
+        .join('');
+
+      ['selRotaOrigem', 'selRotaDestino', 'selPlaylistInicio', 'selConOrigem', 'selConDestino', 'selRemoverMusica'].forEach(id => {
+        const sel = document.getElementById(id);
+        const anterior = sel.value;
+        sel.innerHTML = opcoesMusicas;
+        if ([...sel.options].some(o => o.value === anterior)) sel.value = anterior;
+      });
+
+      if (estado.vertices.length >= 2 && document.getElementById('selRotaOrigem').value === document.getElementById('selRotaDestino').value) {
+        document.getElementById('selRotaDestino').selectedIndex = Math.min(3, estado.vertices.length - 1);
+      }
+
+      //Tipos de relacionamento
+      document.getElementById('selConTipo').innerHTML = estado.relacionamentosDisponiveis
+        .map(r => `<option value="${r.id}">${escaparHtml(r.nome)}</option>`)
+        .join('');
+
+      document.getElementById('boxPesoConexao').style.display = estado.ehPonderado ? 'block' : 'none';
+
+      // Lista de remoção de conexões
+      const seta = estado.ehDirecionado ? '→' : '↔';
+      document.getElementById('listaRemoverConexoes').innerHTML = estado.arestas.length === 0
+        ? '<div style="font-size:12px; color:var(--muted);">Nenhuma conexão cadastrada.</div>'
+        : estado.arestas.map(a => `
+            <div class="rec-item" style="cursor:default;">
+              <div>
+                <div class="name" style="font-size:12px;">${escaparHtml(a.origem)} ${seta} ${escaparHtml(a.destino)}</div>
+                <div class="ctx">${escaparHtml(a.contexto)}${estado.ehPonderado ? ` · ${a.peso}%` : ''}</div>
+              </div>
+              <button class="mini-btn" style="color:var(--red);" onclick="removerConexao('${escaparJs(a.origem)}','${escaparJs(a.destino)}',${a.indiceEntrePar})">✕</button>
+            </div>
+          `).join('');
+
+      renderizarPainelPlayer();
+      renderizarAbaTeoria();
+      desenharGrafoSvg();
+    }
+
+    function renderizarPainelPlayer() {
+      if (!recomendacaoAtual || !musicaSelecionada) {
+        document.getElementById('npTitulo').textContent = 'Grafo sem músicas';
+        document.getElementById('npMeta').textContent = 'Adicione músicas na aba Editar.';
+        document.getElementById('npGraus').textContent = '';
+        document.getElementById('listaDiretas').innerHTML = '';
+        document.getElementById('listaDescobertas').innerHTML = '';
+        return;
+      }
+
+      const f = recomendacaoAtual.atual;
+      const vertInfo = estado.vertices.find(v => v.titulo === f.titulo);
+      document.getElementById('npTitulo').textContent = `${vertInfo ? vertInfo.codigo + ' · ' : ''}${f.titulo}`;
+      document.getElementById('npMeta').textContent = `${f.artista} · ${f.genero} · ${f.bpm} BPM`;
+      document.getElementById('npGraus').textContent = estado.ehDirecionado
+        ? `Grau de Entrada: ${vertInfo?.grauEntrada ?? 0} | Grau de Saída: ${vertInfo?.grauSaida ?? 0}`
+        : `Grau do Vértice: ${vertInfo?.grauTotal ?? 0}`;
+
+      document.getElementById('badgeRepeatAtual').style.display = recomendacaoAtual.possuiRepeat ? 'inline-block' : 'none';
+
+      // 1º Grau
+      document.getElementById('qtdDiretas').textContent = recomendacaoAtual.diretas.length;
+      document.getElementById('listaDiretas').innerHTML = recomendacaoAtual.diretas.length === 0
+        ? '<div style="font-size:12px; color:var(--muted);">Nenhuma saída direta a partir desta música.</div>'
+        : recomendacaoAtual.diretas.map(c => `
+            <div class="rec-item" onclick="selecionarMusica('${escaparJs(c.destino)}')">
+              <div>
+                <div class="name">♪ ${escaparHtml(c.destino)}</div>
+                <div class="ctx">${escaparHtml(c.artista)} · ${escaparHtml(c.contexto)}</div>
+              </div>
+              ${estado.ehPonderado ? `<span class="pct-pill">${c.peso}%</span>` : '<span class="pct-pill">Ir →</span>'}
+            </div>
+          `).join('');
+
+      // 2º Grau
+      document.getElementById('qtdDescobertas').textContent = recomendacaoAtual.descobertas.length;
+      document.getElementById('listaDescobertas').innerHTML = recomendacaoAtual.descobertas.length === 0
+        ? '<div style="font-size:12px; color:var(--muted);">Nenhuma descoberta de 2º grau.</div>'
+        : recomendacaoAtual.descobertas.map(d => `
+            <div class="rec-item" onclick="selecionarMusica('${escaparJs(d.titulo)}')">
+              <div>
+                <div class="name">★ ${escaparHtml(d.titulo)}</div>
+                <div class="ctx">${escaparHtml(d.artista)}</div>
+              </div>
+              <span class="badge b-cyan">${estado.ehPonderado ? `Índice ${d.pontuacao}` : `${d.pontuacao} ponte(s)`}</span>
+            </div>
+          `).join('');
+    }
+
+    function renderizarAbaTeoria() {
+      const d = estado.diagnostico;
+      document.getElementById('boxDiagnosticoExplicado').innerHTML = `
+        <div class="diag-item">
+          <strong>Tipo Estrutural:</strong> <span class="val">${escaparHtml(d.tipoEstrutural)}</span>
+          <div class="exp">${escaparHtml(d.explicacaoEstrutura)}</div>
+        </div>
+        <div class="diag-item">
+          <strong>Conectividade (BFS):</strong> <span class="val">${escaparHtml(d.conectividade)}</span>
+          <div class="exp">${escaparHtml(d.explicacaoConectividade)}</div>
+        </div>
+        <div class="diag-item">
+          <strong>Ciclicidade (DFS):</strong> <span class="val">${escaparHtml(d.ciclicidadeTexto)}</span>
+        </div>
+        <div class="diag-item">
+          <strong>Grafo Completo (Kn):</strong> <span class="val">${d.ehCompleto ? `Sim (K${d.totalVertices})` : 'Não'}</span>
+          <div class="exp">Grau Médio: <strong>${d.grauMedio}</strong> · Densidade: <strong>${d.densidadePercentual}%</strong></div>
+        </div>
+      `;
+
+      // Matriz de Adjacência
+      const m = estado.matrizAdjacencia;
+      if (m.codigos.length === 0) {
+        document.getElementById('boxMatriz').innerHTML = '<div style="font-size:12px; color:var(--muted);">Sem vértices.</div>';
+      } else {
+        const ths = m.codigos.map((cod, i) =>
+          `<th title="${escaparHtml(m.linhas[i].titulo)}">${cod}</th>`
+        ).join('');
+        const trs = m.linhas.map((lin, i) => {
+          const tds = lin.celulas.map((cel, j) => {
+            const vazio = cel === '0' || cel === '-';
+            const cls = vazio ? 'empty' : (i === j ? 'has-loop' : 'has-edge');
+            return `<td class="${cls}" title="${escaparHtml(lin.titulo)} → ${escaparHtml(m.linhas[j].titulo)}">${cel}</td>`;
+          }).join('');
+          return `<tr><th title="${escaparHtml(lin.titulo)}">${lin.codigo}</th>${tds}</tr>`;
+        }).join('');
+        document.getElementById('boxMatriz').innerHTML = `<table class="matrix"><thead><tr><th></th>${ths}</tr></thead><tbody>${trs}</tbody></table>`;
+      }
+
+      // Lista de Adjacência
+      const seta = estado.ehDirecionado ? '→' : '↔';
+      document.getElementById('boxListaAdj').innerHTML = estado.listaAdjacencia.map(item => {
+        const dests = item.conexoes.length === 0
+          ? '<span style="color:#64748b;">(isolada)</span>'
+          : item.conexoes.map(c =>
+              `<span style="color:${c.ehLaco ? '#d8b4fe' : '#86efac'};">${escaparHtml(c.destino)}</span>` +
+              `<span style="color:#94a3b8;"> (${escaparHtml(c.contexto)}${estado.ehPonderado ? ': ' + c.peso + '%' : ''})</span>`
+            ).join(', ');
+        return `<div><strong style="color:var(--cyan);">${item.codigo} ${escaparHtml(item.titulo)}</strong> ${seta} ${dests}</div>`;
+      }).join('');
+    }
+
+    function parEstaNaRota(origem, destino, caminho, ehDirecionado) {
+      if (!caminho || caminho.length < 2) return false;
+      for (let i = 0; i < caminho.length - 1; i++) {
+        if (caminho[i] === origem && caminho[i + 1] === destino) return true;
+        if (!ehDirecionado && caminho[i] === destino && caminho[i + 1] === origem) return true;
+      }
+      return false;
+    }
+
+    function desenharGrafoSvg() {
+      const svg = document.getElementById('grafoSvg');
+      if (!estado) return;
+
+      const W = svg.clientWidth || 800;
+      const H = svg.clientHeight || 560;
+      const cx = W / 2;
+      const cy = H / 2;
+      const raioNo = 25;
+
+      estado.vertices.forEach(v => {
+        if (!posicoes[v.titulo]) posicoes[v.titulo] = { x: cx, y: cy };
+      });
+
+      const diretasSet = new Set((recomendacaoAtual?.diretas || []).map(d => d.destino));
+      const descobertasSet = new Set((recomendacaoAtual?.descobertas || []).map(d => d.titulo));
+
+      let html = `
+        <defs>
+          <marker id="arrow-normal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+            <path d="M 0 1.5 L 10 5 L 0 8.5 z" fill="#64748b" />
+          </marker>
+          <marker id="arrow-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 1.5 L 10 5 L 0 8.5 z" fill="#22c55e" />
+          </marker>
+          <marker id="arrow-route" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto-start-reverse">
+            <path d="M 0 1.5 L 10 5 L 0 8.5 z" fill="${rotaDestacada?.cor || '#f59e0b'}" />
+          </marker>
+          <marker id="arrow-loop" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 1.5 L 10 5 L 0 8.5 z" fill="#c084fc" />
+          </marker>
+        </defs>
+      `;
+
+      // 1. Desenhar Arestas
+      estado.arestas.forEach(a => {
+        const p1 = posicoes[a.origem];
+        const p2 = posicoes[a.destino];
+        if (!p1 || !p2) return;
+
+        // Auto-laço (Modo Repeat)
+        if (a.ehLaco) {
+          let vx = p1.x - cx;
+          let vy = p1.y - cy;
+          const len = Math.hypot(vx, vy) || 1;
+          vx /= len; vy /= len;
+          const px = -vy; const py = vx;
+
+          const startX = p1.x + vx * (raioNo * 0.7) + px * 10;
+          const startY = p1.y + vy * (raioNo * 0.7) + py * 10;
+          const endX = p1.x + vx * (raioNo * 0.7) - px * 10;
+          const endY = p1.y + vy * (raioNo * 0.7) - py * 10;
+          const c1x = p1.x + vx * 64 + px * 32;
+          const c1y = p1.y + vy * 64 + py * 32;
+          const c2x = p1.x + vx * 64 - px * 32;
+          const c2y = p1.y + vy * 64 - py * 32;
+
+          html += `<path d="M ${startX} ${startY} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${endX} ${endY}"
+                     fill="none" stroke="#c084fc" stroke-width="2.4"
+                     ${estado.ehDirecionado ? 'marker-end="url(#arrow-loop)"' : ''} />`;
+          if (mostrarRotulos) {
+            const lx = p1.x + vx * 58;
+            const ly = p1.y + vy * 58;
+            html += `<text x="${lx}" y="${ly}" text-anchor="middle" fill="#e9d5ff" font-size="10.5" font-weight="700">🔁 Repeat</text>`;
+          }
+          return;
+        }
+
+        const dx = p2.x - p1.x;
+        const dy = p2.y - p1.y;
+        const dist = Math.hypot(dx, dy) || 1;
+        const ux = dx / dist;
+        const uy = dy / dist;
+        const nx = -uy;
+        const ny = ux;
+
+        // Offset para arestas paralelas (Multigrafo) ou arcos opostos em dígrafos
+        let curvatura = 0;
+        if (a.totalEntrePar > 1) {
+          const passo = 30;
+          curvatura = (a.indiceEntrePar - (a.totalEntrePar - 1) / 2) * passo;
+          if (a.possuiArcoReverso && curvatura === 0) curvatura = 18;
+        } else if (a.possuiArcoReverso) {
+          curvatura = 20;
+        }
+
+        const ctrlX = (p1.x + p2.x) / 2 + nx * curvatura;
+        const ctrlY = (p1.y + p2.y) / 2 + ny * curvatura;
+
+        // Ajustar início e fim para a borda do círculo (raioNo)
+        const dirFimX = p2.x - ctrlX;
+        const dirFimY = p2.y - ctrlY;
+        const distFim = Math.hypot(dirFimX, dirFimY) || 1;
+        const endX = p2.x - (dirFimX / distFim) * (raioNo + 3);
+        const endY = p2.y - (dirFimY / distFim) * (raioNo + 3);
+
+        const dirIniX = ctrlX - p1.x;
+        const dirIniY = ctrlY - p1.y;
+        const distIni = Math.hypot(dirIniX, dirIniY) || 1;
+        const startX = p1.x + (dirIniX / distIni) * raioNo;
+        const startY = p1.y + (dirIniY / distIni) * raioNo;
+
+        const emRota = rotaDestacada && parEstaNaRota(a.origem, a.destino, rotaDestacada.caminho, estado.ehDirecionado);
+        const ehSaidaSelecionada = !rotaDestacada && (
+          (a.origem === musicaSelecionada) ||
+          (!estado.ehDirecionado && a.destino === musicaSelecionada)
+        );
+
+        let cor = '#3b4b66';
+        let largura = 1.7;
+        let marcador = estado.ehDirecionado ? 'marker-end="url(#arrow-normal)"' : '';
+        let opacidade = rotaDestacada && !emRota ? 0.22 : 0.88;
+
+        if (emRota) {
+          cor = rotaDestacada.cor;
+          largura = 3.6;
+          marcador = estado.ehDirecionado ? 'marker-end="url(#arrow-route)"' : '';
+          opacidade = 1;
+        } else if (ehSaidaSelecionada) {
+          cor = '#22c55e';
+          largura = 2.8;
+          marcador = estado.ehDirecionado ? 'marker-end="url(#arrow-green)"' : '';
+          opacidade = 1;
+        }
+
+        html += `<path d="M ${startX} ${startY} Q ${ctrlX} ${ctrlY} ${endX} ${endY}"
+                   fill="none" stroke="${cor}" stroke-width="${largura}" opacity="${opacidade}" ${marcador} />`;
+
+        if (mostrarRotulos && (!rotaDestacada || emRota)) {
+          const midX = 0.25 * startX + 0.5 * ctrlX + 0.25 * endX;
+          const midY = 0.25 * startY + 0.5 * ctrlY + 0.25 * endY;
+          const txt = estado.ehPonderado ? `${a.peso}%` : a.contexto.split(' ')[0];
+          html += `
+            <g transform="translate(${midX}, ${midY})" opacity="${opacidade}">
+              <rect x="-20" y="-9" width="40" height="17" rx="5" fill="#0f172a" stroke="${cor}" stroke-width="1" />
+              <text x="0" y="3" text-anchor="middle" fill="${emRota ? '#fff' : '#cbd5e1'}" font-size="10" font-weight="600">${escaparHtml(txt)}</text>
+            </g>
+          `;
+        }
+      });
+
+      // 2. Desenhar Vértices (Músicas)
+      estado.vertices.forEach(v => {
+        const p = posicoes[v.titulo];
+        const ehAtual = v.titulo === musicaSelecionada;
+        const idxRota = rotaDestacada ? rotaDestacada.caminho.indexOf(v.titulo) : -1;
+        const ehViz1 = !ehAtual && diretasSet.has(v.titulo);
+        const ehViz2 = !ehAtual && !ehViz1 && descobertasSet.has(v.titulo);
+
+        let fill = '#1a2436';
+        let stroke = '#475569';
+        let strokeW = 2;
+
+        if (idxRota >= 0) {
+          fill = '#292112';
+          stroke = rotaDestacada.cor;
+          strokeW = 3.5;
+        } else if (ehAtual) {
+          fill = '#133624';
+          stroke = '#1db954';
+          strokeW = 3.5;
+        } else if (ehViz1) {
+          fill = '#132a23';
+          stroke = '#4ade80';
+          strokeW = 2.5;
+        } else if (ehViz2) {
+          stroke = '#38bdf8';
+          strokeW = 2.2;
+        }
+
+        const opacidadeNo = rotaDestacada && idxRota < 0 ? 0.42 : 1;
+
+        html += `
+          <g class="vertice-no" data-titulo="${escaparHtml(v.titulo)}" transform="translate(${p.x}, ${p.y})" opacity="${opacidadeNo}" style="cursor:pointer;">
+            ${ehAtual ? `<circle r="${raioNo + 6}" fill="none" stroke="rgba(29,185,84,0.32)" stroke-width="4" />` : ''}
+            <circle r="${raioNo}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeW}" />
+            <text y="-3" text-anchor="middle" fill="#94a3b8" font-size="9.5" font-weight="700">${v.codigo}</text>
+            <text y="10" text-anchor="middle" fill="#fff" font-size="12">♪</text>
+            ${idxRota >= 0 ? `
+              <circle cx="19" cy="-19" r="10" fill="${rotaDestacada.cor}" />
+              <text x="19" y="-15" text-anchor="middle" fill="#090d16" font-size="11" font-weight="800">${idxRota + 1}</text>
+            ` : ''}
+            <rect x="-64" y="${raioNo + 5}" width="128" height="20" rx="5" fill="rgba(9,13,22,0.82)" />
+            <text y="${raioNo + 18}" text-anchor="middle" fill="#f8fafc" font-size="11.5" font-weight="600">${escaparHtml(truncar(v.titulo, 18))}</text>
+          </g>
+        `;
+      });
+
+      svg.innerHTML = html;
+
+      // Eventos de clique e arrasto nos nós
+      svg.querySelectorAll('.vertice-no').forEach(el => {
+        el.addEventListener('pointerdown', e => {
+          e.stopPropagation();
+          arrastandoNo = {
+            titulo: el.getAttribute('data-titulo'),
+            startX: e.clientX,
+            startY: e.clientY
+          };
+          moveuArrasto = false;
+        });
+      });
+    }
+
+    window.addEventListener('pointermove', e => {
+      if (!arrastandoNo) return;
+      const dx = e.clientX - arrastandoNo.startX;
+      const dy = e.clientY - arrastandoNo.startY;
+      if (Math.hypot(dx, dy) > 4) moveuArrasto = true;
+
+      if (moveuArrasto) {
+        const svg = document.getElementById('grafoSvg');
+        const rect = svg.getBoundingClientRect();
+        posicoes[arrastandoNo.titulo] = {
+          x: Math.max(40, Math.min(rect.width - 40, e.clientX - rect.left)),
+          y: Math.max(55, Math.min(rect.height - 50, e.clientY - rect.top))
+        };
+        desenharGrafoSvg();
+      }
+    });
+
+    window.addEventListener('pointerup', () => {
+      if (arrastandoNo && !moveuArrasto) {
+        selecionarMusica(arrastandoNo.titulo);
+      }
+      arrastandoNo = null;
+    });
+
+    // AÇÕES DO PLAYER E ALGORITMOS
+    async function autoDj() {
+      if (!recomendacaoAtual || recomendacaoAtual.diretas.length === 0) {
+        mostrarToast('Esta música não possui conexões de saída!');
+        return;
+      }
+      const prox = recomendacaoAtual.diretas[0];
+      await selecionarMusica(prox.destino);
+    }
+
+    async function alternarRepeatAtual() {
+      if (!musicaSelecionada) return;
+      const res = await api('/api/repeat', {
+        method: 'POST',
+        body: JSON.stringify({ titulo: musicaSelecionada })
+      });
+      estado = res.estado;
+      await selecionarMusica(musicaSelecionada, false);
+      atualizarInterfaceCompleta();
+      mostrarToast(res.mensagem);
+    }
+
+    async function calcularRotas() {
+      const origem = document.getElementById('selRotaOrigem').value;
+      const destino = document.getElementById('selRotaDestino').value;
+      const res = await api(`/api/rota?origem=${encodeURIComponent(origem)}&destino=${encodeURIComponent(destino)}`);
+      const box = document.getElementById('resultadoRotas');
+
+      if (!res.encontrou) {
+        rotaDestacada = null;
+        desenharGrafoSvg();
+        box.innerHTML = `<div class="route-box" style="border:1px solid var(--red); color:#fca5a5;">${escaparHtml(res.mensagem)}</div>`;
+        return;
+      }
+
+      window._ultimaRotaBfs = res.bfs.caminho;
+      window._ultimaRotaDjk = res.dijkstra ? res.dijkstra.caminho : null;
+
+      let html = `
+        <div class="route-box route-bfs">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+            <strong style="color:var(--cyan);">1) BFS — Menos Pulos (${res.bfs.transicoes})</strong>
+            <button class="mini-btn" onclick="destacarRota(window._ultimaRotaBfs, '#38bdf8')">Ver no Mapa</button>
+          </div>
+          <div>${res.bfs.caminho.map(escaparHtml).join(' → ')}</div>
+        </div>
+      `;
+
+      if (res.dijkstra) {
+        html += `
+          <div class="route-box route-djk">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+              <strong style="color:var(--amber);">2) Dijkstra — Maior Afinidade (${res.dijkstra.afinidadeMedia}%)</strong>
+              <button class="mini-btn" onclick="destacarRota(window._ultimaRotaDjk, '#f59e0b')">Ver no Mapa</button>
+            </div>
+            <div>${res.dijkstra.caminho.map(escaparHtml).join(' → ')}</div>
+          </div>
+        `;
+        destacarRota(res.dijkstra.caminho, '#f59e0b');
+      } else {
+        destacarRota(res.bfs.caminho, '#38bdf8');
+      }
+
+      box.innerHTML = html;
+    }
+
+    async function gerarPlaylist() {
+      const inicio = document.getElementById('selPlaylistInicio').value;
+      const tam = document.getElementById('selPlaylistTam').value;
+      const res = await api(`/api/playlist?inicio=${encodeURIComponent(inicio)}&tamanho=${tam}`);
+
+      destacarRota(res.ordem, '#1db954');
+      document.getElementById('resultadoPlaylist').innerHTML = `
+        <div class="route-box" style="border:1px solid var(--green); background:rgba(29,185,84,0.1);">
+          <strong style="color:#4ade80;">Playlist Gerada (${res.ordem.length} músicas${estado.ehPonderado && res.afinidadeMedia ? ` · Média ${res.afinidadeMedia}%` : ''}):</strong>
+          <div style="margin-top:5px;">${res.ordem.map((m, i) => `${i + 1}. ${escaparHtml(m)}`).join('<br/>')}</div>
+        </div>
+      `;
+    }
+
+    function destacarRota(caminho, cor) {
+      rotaDestacada = { caminho, cor };
+      document.getElementById('btnLimparRota').style.display = 'inline-block';
+      desenharGrafoSvg();
+    }
+
+    function limparDestaqueRota() {
+      rotaDestacada = null;
+      document.getElementById('btnLimparRota').style.display = 'none';
+      desenharGrafoSvg();
+    }
+
+    // EDIÇÃO DO GRAFO
+    async function criarConexao() {
+      try {
+        const payload = {
+          origem: document.getElementById('selConOrigem').value,
+          destino: document.getElementById('selConDestino').value,
+          tipo: Number(document.getElementById('selConTipo').value),
+          peso: Number(document.getElementById('rngPeso').value),
+          contexto: null
+        };
+        const res = await api('/api/conexao', { method: 'POST', body: JSON.stringify(payload) });
+        estado = res.estado;
+        if (musicaSelecionada) await selecionarMusica(musicaSelecionada, false);
+        atualizarInterfaceCompleta();
+        mostrarToast(res.mensagem);
+      } catch (e) {
+        mostrarToast(e.message);
+      }
+    }
+
+    async function adicionarMusica() {
+      try {
+        const titulo = document.getElementById('inpTitulo').value.trim();
+        if (!titulo) { mostrarToast('Digite o nome da música!'); return; }
+        const payload = {
+          titulo,
+          artista: document.getElementById('inpArtista').value.trim() || 'Artista',
+          genero: document.getElementById('inpGenero').value.trim() || 'Pop',
+          album: 'Single',
+          ano: 2024,
+          bpm: Number(document.getElementById('inpBpm').value) || 120
+        };
+        estado = await api('/api/musica', { method: 'POST', body: JSON.stringify(payload) });
+        document.getElementById('inpTitulo').value = '';
+        calcularPosicoesIniciais();
+        await selecionarMusica(titulo, false);
+        atualizarInterfaceCompleta();
+        mostrarToast(`Música '${titulo}' adicionada!`);
+      } catch (e) {
+        mostrarToast(e.message);
+      }
+    }
+
+    async function autoConectar(regra) {
+      const res = await api('/api/autoconectar/' + regra, { method: 'POST' });
+      estado = res.estado;
+      if (musicaSelecionada) await selecionarMusica(musicaSelecionada, false);
+      atualizarInterfaceCompleta();
+      mostrarToast(res.mensagem);
+    }
+
+    async function removerMusica() {
+      const titulo = document.getElementById('selRemoverMusica').value;
+      if (!titulo) return;
+      estado = await api('/api/musica?titulo=' + encodeURIComponent(titulo), { method: 'DELETE' });
+      delete posicoes[titulo];
+      if (musicaSelecionada === titulo) {
+        musicaSelecionada = estado.vertices[0]?.titulo || null;
+        if (musicaSelecionada) await selecionarMusica(musicaSelecionada, false);
+      }
+      atualizarInterfaceCompleta();
+      mostrarToast(`Música '${titulo}' removida.`);
+    }
+
+    async function removerConexao(origem, destino, indice) {
+      estado = await api(`/api/conexao?origem=${encodeURIComponent(origem)}&destino=${encodeURIComponent(destino)}&indice=${indice}`, { method: 'DELETE' });
+      if (musicaSelecionada) await selecionarMusica(musicaSelecionada, false);
+      atualizarInterfaceCompleta();
+      mostrarToast('Conexão removida.');
+    }
+
+    // MODAL NOVO GRAFO
+    function abrirModalNovo() { document.getElementById('modalNovo').classList.add('open'); }
+    function fecharModalNovo() { document.getElementById('modalNovo').classList.remove('open'); }
+
+    async function confirmarNovoGrafo() {
+      const payload = {
+        nome: document.getElementById('novoNome').value,
+        ehDirecionado: document.getElementById('novoDirecionado').value === 'true',
+        ehPonderado: document.getElementById('novoPonderado').value === 'true'
+      };
+      fecharModalNovo();
+      rotaDestacada = null;
+      posicoes = {};
+      estado = await api('/api/novo', { method: 'POST', body: JSON.stringify(payload) });
+      musicaSelecionada = null;
+      recomendacaoAtual = null;
+      atualizarInterfaceCompleta();
+      mostrarToast('Novo grafo criado! Use a aba Editar para adicionar músicas.');
+    }
+
+    function truncar(s, n) { return s.length > n ? s.slice(0, n - 1) + '…' : s; }
+    function escaparHtml(s) {
+      return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+    function escaparJs(s) {
+      return String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    }
+
+    iniciar();
+  </script>
+</body>
+</html>
