@@ -1,5 +1,7 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text;
+using System.Text.Json;
 using SoundGraph;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -12,6 +14,12 @@ app.UseStaticFiles();
 object syncLock = new();
 GrafoMusical grafoAtual = PresetsCatalogo.CriarPreset(1);
 int presetAtualId = 1;
+HttpClient httpMidia = new() { Timeout = TimeSpan.FromSeconds(5) };
+ConcurrentDictionary<string, MidiaPreviewDto> cacheMidia = new(StringComparer.OrdinalIgnoreCase);
+HashSet<string> artistasFicticios = new(StringComparer.OrdinalIgnoreCase)
+{
+    "Synth Collective", "Banda Aurora", "DJ Pulse", "Luna Star", "All Stars"
+};
 
 app.MapGet("/api/estado", () =>
 {
@@ -223,6 +231,64 @@ app.MapDelete("/api/conexao", (string origem, string destino, int indice = 0) =>
     }
 });
 
+app.MapGet("/api/midia", async (string titulo, string artista = "") =>
+{
+    string chave = $"{titulo}|{artista}".Trim();
+    if (cacheMidia.TryGetValue(chave, out MidiaPreviewDto? emCache))
+        return Results.Ok(emCache);
+
+    if (artistasFicticios.Contains(artista.Trim()))
+    {
+        var sintetizado = new MidiaPreviewDto(false, null, null, null, "Faixa autoral do cenário (usando sintetizador no BPM da música).");
+        cacheMidia[chave] = sintetizado;
+        return Results.Ok(sintetizado);
+    }
+
+    try
+    {
+        string termo = Uri.EscapeDataString($"{titulo} {artista}".Trim());
+        string url = $"https://itunes.apple.com/search?term={termo}&entity=song&limit=6";
+        using HttpResponseMessage resp = await httpMidia.GetAsync(url);
+        resp.EnsureSuccessStatusCode();
+
+        using Stream stream = await resp.Content.ReadAsStreamAsync();
+        using JsonDocument doc = await JsonDocument.ParseAsync(stream);
+
+        if (doc.RootElement.TryGetProperty("results", out JsonElement results) && results.GetArrayLength() > 0)
+        {
+            JsonElement escolhido = results[0];
+            string primeiroTokenArtista = artista.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "";
+
+            foreach (JsonElement item in results.EnumerateArray())
+            {
+                string nomeArt = item.TryGetProperty("artistName", out JsonElement aEl) ? (aEl.GetString() ?? "") : "";
+                if (!string.IsNullOrWhiteSpace(primeiroTokenArtista) &&
+                    nomeArt.Contains(primeiroTokenArtista, StringComparison.OrdinalIgnoreCase))
+                {
+                    escolhido = item;
+                    break;
+                }
+            }
+
+            string? preview = escolhido.TryGetProperty("previewUrl", out JsonElement pEl) ? pEl.GetString() : null;
+            string? capa = escolhido.TryGetProperty("artworkUrl100", out JsonElement cEl) ? cEl.GetString() : null;
+            string? fonteNome = escolhido.TryGetProperty("trackName", out JsonElement tEl) ? tEl.GetString() : titulo;
+
+            if (!string.IsNullOrWhiteSpace(preview))
+            {
+                var encontrado = new MidiaPreviewDto(true, preview, capa, fonteNome, "Prévia oficial carregada.");
+                cacheMidia[chave] = encontrado;
+                return Results.Ok(encontrado);
+            }
+        }
+    }
+    catch
+    {
+    }
+
+    return Results.Ok(new MidiaPreviewDto(false, null, null, null, "Sem prévia online (usando sintetizador de BPM ou arquivo local)."));
+});
+
 app.MapGet("/api/relatorio", () =>
 {
     lock (syncLock)
@@ -261,6 +327,7 @@ namespace SoundGraph
     public record NovaMusicaReq(string Titulo, string Artista, string Genero, string Album, int Ano, int Bpm);
     public record NovaConexaoReq(string Origem, string Destino, int Peso, int Tipo, string? Contexto);
     public record RepeatReq(string Titulo);
+    public record MidiaPreviewDto(bool EncontrouPreview, string? PreviewUrl, string? CapaUrl, string? NomeFaixa, string Status);
 
     public enum TipoRelacionamento
     {
