@@ -49,7 +49,9 @@ Escolha uma das duas formas:
 Com a página aberta em `http://localhost:5180`:
 1. **Alternar Tipos de Grafos (barra superior):** Clique nos botões **`1` a `6`** no topo para ver a estrutura mudar ao vivo entre *Multigrafo + Pseudografo*, *Grafo Simples Não-Direcionado*, *Grafo Desconexo (3 ilhas)*, *Grafo Completo $K_6$* e *DAG Acíclico*.
 2. **Explorar Vértices e Arestas (no mapa central):** Clique em qualquer bolinha de música para ver suas conexões diretas (**1º grau em verde**) e descobertas (**2º grau em azul**), ou arraste os nós com o mouse.
-3. **Testar Auto-Laço / Pseudografo (aba `🎧 Player`):** Clique em **`🔁 Ligar/Desligar Repeat`** para criar ou remover um auto-laço na música atual e observar o arco roxo no mapa e a mudança automática da classificação estrutural no topo.
+3. **Ouvir as Músicas e Testar Auto-Laço / Auto-DJ (aba `🎧 Player`):**
+   - Ao clicar em **`▶`** (ou em uma bolinha do mapa), o player carrega a **capa oficial do álbum** e toca a **prévia real da música** (ou batida sintetizada no BPM da faixa / arquivo `.mp3` local pelo botão `📂 MP3`).
+   - Com o **`📻 Auto-DJ: ON`**, quando a música termina ela atravessa automaticamente a seta de maior afinidade para tocar a próxima música; se o **`🔁 Repeat`** estiver ativo (**Pseudografo**), o áudio repete em loop pelo auto-laço!
 4. **Comparar BFS vs. Dijkstra (aba `🧭 Rotas`):** Selecione o cenário **`5. Festival (DAG)`**, abra a aba **`🧭 Rotas`** e clique em **`🔍 Traçar e Comparar no Mapa`** (entre *Vibe Pop* e *Clímax Rock*) para comparar o menor caminho em saltos (**BFS**, 1 salto) com a rota de maior afinidade (**Dijkstra**, 2 saltos com média de `92,5%`).
 5. **Conferir Estruturas Formais (aba `📊 Matriz`):** Veja a **Matriz de Adjacência ($N \times N$)** colorida, a **Lista de Adjacência**, o diagnóstico explicado e o botão **`⬇ Baixar .TXT`**.
 
