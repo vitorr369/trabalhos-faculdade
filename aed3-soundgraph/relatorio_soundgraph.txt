@@ -1,0 +1,97 @@
+﻿===============================================================================
+                  SOUNDGRAPH PRO - RELATÓRIO DO GRAFO MUSICAL                  
+===============================================================================
+Cenário       : Mega Catálogo de Streaming (18 Faixas | Dígrafo Ponderado | Multi + Pseudografo)
+Gerado em     : 24/11/2026 23:24:27
+Vértices (|V|): 18
+Arestas  (|E|): 35
+
+=== DIAGNÓSTICO DE TIPOS E DIREÇÕES ===
+  • Direção              : Direcionado (Dígrafo - transições de sentido único)
+  • Ponderação           : Ponderado (arestas possuem peso de afinidade %)
+  • Tipo Estrutural      : Pseudografo (possui auto-laço/Repeat e arestas paralelas)
+  • Auto-laços (Repeat)  : Sim
+  • Arestas Paralelas    : Sim (múltiplos relacionamentos entre o mesmo par)
+  • Conectividade        : Fracamente Conexo (1 componente(s))
+  • Ciclicidade          : Cíclico (rádio/loop contínuo detectado)
+  • Grafo Completo (Kn)  : Não
+  • Grau Médio (Ent+Saí) : 3,89 (Entrada = Saída = 1,94)
+  • Densidade Relativa   : 9,8% (pares distintos sem laço)
+
+=== DISTRIBUIÇÃO POR TIPO DE RELACIONAMENTO ===
+  • Mesmo Artista           : 5 conexão(ões)
+  • Playlist Treino         : 5 conexão(ões)
+  • Afinidade Sonora        : 3 conexão(ões)
+  • Mesmo Gênero            : 3 conexão(ões)
+  • Playlist Festa          : 3 conexão(ões)
+  • BPM Compatível          : 3 conexão(ões)
+  • Rádio Loop              : 3 conexão(ões)
+  • Mesmo Álbum             : 2 conexão(ões)
+  • Colaboração / Feat      : 2 conexão(ões)
+  • Transição de Fila       : 2 conexão(ões)
+  • Modo Repeat (Laço)      : 2 conexão(ões)
+  • Playlist Foco           : 1 conexão(ões)
+  • Sample / Cover          : 1 conexão(ões)
+
+=== CATÁLOGO E GRAUS DAS FAIXAS ===
+  #    | Faixa Musical            | Artista            | Gênero       | BPM  | Entrada | Saída  | Total
+  --------------------------------------------------------------------------------------------------
+  M1   | Blinding Lights          | The Weeknd         | Synthpop     | 171  | 3       | 5      | 8    
+  M2   | Enter Sandman            | Metallica          | Metal        | 123  | 3       | 1      | 4    
+  M3   | Get Lucky                | Daft Punk          | Eletrônica   | 116  | 2       | 2      | 4    
+  M4   | In The End               | Linkin Park        | Rock         | 105  | 2       | 3      | 5    
+  M5   | Instant Crush            | Daft Punk          | Eletrônica   | 110  | 3       | 1      | 4    
+  M6   | Levitating               | Dua Lipa           | Pop          | 103  | 1       | 1      | 2    
+  M7   | Lofi Rain                | Chillhop Beats     | Lo-Fi        | 82   | 2       | 1      | 3    
+  M8   | Lose Yourself            | Eminem             | Rap          | 171  | 1       | 3      | 4    
+  M9   | Master of Puppets        | Metallica          | Metal        | 212  | 1       | 2      | 3    
+  M10  | Midnight City            | M83                | Eletrônica   | 105  | 2       | 1      | 3    
+  M11  | Numb                     | Linkin Park        | Rock         | 110  | 2       | 2      | 4    
+  M12  | Pais e Filhos            | Legião Urbana      | Rock BR      | 118  | 1       | 2      | 3    
+  M13  | Save Your Tears          | The Weeknd         | Synthpop     | 118  | 3       | 2      | 5    
+  M14  | Starboy                  | The Weeknd         | Pop          | 186  | 1       | 3      | 4    
+  M15  | Stronger                 | Kanye West         | Rap          | 104  | 1       | 2      | 3    
+  M16  | Take On Me               | a-ha               | Synthpop     | 169  | 1       | 1      | 2    
+  M17  | Tempo Perdido            | Legião Urbana      | Rock BR      | 122  | 2       | 1      | 3    
+  M18  | Till I Collapse          | Eminem             | Rap          | 171  | 4       | 2      | 6    
+
+=== LISTA DE ADJACÊNCIA ===
+  Blinding Lights    → Save Your Tears [Mesmo Álbum: 96%], Save Your Tears [Playlist Festa: 91%], Take On Me [BPM Compatível: 94%], Starboy [Mesmo Artista: 89%], Blinding Lights [Modo Repeat (Laço): 100%]
+  Enter Sandman      → Master of Puppets [Mesmo Artista: 96%]
+  Get Lucky          → Instant Crush [Mesmo Álbum: 93%], Stronger [Sample / Cover: 87%]
+  In The End         → Numb [Rádio Loop: 90%], Enter Sandman [Transição de Fila: 79%], Tempo Perdido [Afinidade Sonora: 74%]
+  Instant Crush      → Midnight City [Mesmo Gênero: 83%]
+  Levitating         → Get Lucky [Playlist Festa: 90%]
+  Lofi Rain          → Lofi Rain [Modo Repeat (Laço): 100%]
+  Lose Yourself      → Till I Collapse [Mesmo Artista: 97%], Till I Collapse [Playlist Treino: 95%], Blinding Lights [BPM Compatível: 80%]
+  Master of Puppets  → Enter Sandman [Mesmo Gênero: 91%], Till I Collapse [Playlist Treino: 82%]
+  Midnight City      → Lofi Rain [Playlist Foco: 72%]
+  Numb               → In The End [Mesmo Artista: 98%], In The End [Transição de Fila: 92%]
+  Pais e Filhos      → Tempo Perdido [Rádio Loop: 89%], Save Your Tears [BPM Compatível: 76%]
+  Save Your Tears    → Levitating [Playlist Festa: 85%], Instant Crush [Afinidade Sonora: 78%]
+  Starboy            → Instant Crush [Colaboração / Feat: 92%], Get Lucky [Colaboração / Feat: 84%], Blinding Lights [Rádio Loop: 88%]
+  Stronger           → Lose Yourself [Mesmo Gênero: 89%], Till I Collapse [Playlist Treino: 91%]
+  Take On Me         → Midnight City [Afinidade Sonora: 86%]
+  Tempo Perdido      → Pais e Filhos [Mesmo Artista: 95%]
+  Till I Collapse    → Numb [Playlist Treino: 84%], Enter Sandman [Playlist Treino: 88%]
+
+=== MATRIZ DE ADJACÊNCIA ===
+        M1  M2  M3  M4  M5  M6  M7  M8  M9 M10 M11 M12 M13 M14 M15 M16 M17 M18
+  M1   100   -   -   -   -   -   -   -   -   -   -   - 96*  89   -  94   -   -
+  M2     -   -   -   -   -   -   -   -  96   -   -   -   -   -   -   -   -   -
+  M3     -   -   -   -  93   -   -   -   -   -   -   -   -   -  87   -   -   -
+  M4     -  79   -   -   -   -   -   -   -   -  90   -   -   -   -   -  74   -
+  M5     -   -   -   -   -   -   -   -   -  83   -   -   -   -   -   -   -   -
+  M6     -   -  90   -   -   -   -   -   -   -   -   -   -   -   -   -   -   -
+  M7     -   -   -   -   -   - 100   -   -   -   -   -   -   -   -   -   -   -
+  M8    80   -   -   -   -   -   -   -   -   -   -   -   -   -   -   -   - 97*
+  M9     -  91   -   -   -   -   -   -   -   -   -   -   -   -   -   -   -  82
+  M10    -   -   -   -   -   -  72   -   -   -   -   -   -   -   -   -   -   -
+  M11    -   -   - 98*   -   -   -   -   -   -   -   -   -   -   -   -   -   -
+  M12    -   -   -   -   -   -   -   -   -   -   -   -  76   -   -   -  89   -
+  M13    -   -   -   -  78  85   -   -   -   -   -   -   -   -   -   -   -   -
+  M14   88   -  84   -  92   -   -   -   -   -   -   -   -   -   -   -   -   -
+  M15    -   -   -   -   -   -   -  89   -   -   -   -   -   -   -   -   -  91
+  M16    -   -   -   -   -   -   -   -   -  86   -   -   -   -   -   -   -   -
+  M17    -   -   -   -   -   -   -   -   -   -   -  95   -   -   -   -   -   -
+  M18    -  88   -   -   -   -   -   -   -   -  84   -   -   -   -   -   -   -
