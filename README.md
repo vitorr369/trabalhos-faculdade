@@ -15,7 +15,10 @@ Repositório com os meus projetos e trabalhos desenvolvidos durante a faculdade.
 
 ## Como executar
 
-- **AED3 — SoundGraph Pro (Aplicação Web Visual com Backend em C#):** Entre em [`aed3-soundgraph/`](aed3-soundgraph/) e execute `dotnet run` (ou dê dois cliques em `ExecutarSoundGraph.bat` no Windows) — o mapa interativo do grafo abre automaticamente em `http://localhost:5180`. Veja a explicação completa no [README do projeto](aed3-soundgraph/README.md).
+- **AED3 — SoundGraph Pro (Aplicação Web Visual com Backend em C#):**
+  1. Baixe o repositório (`Code -> Download ZIP` e extraia, ou `git clone`) e tenha o [.NET SDK](https://dotnet.microsoft.com/download) (8, 9 ou 10) instalado.
+  2. No Windows, abra a pasta [`aed3-soundgraph/`](aed3-soundgraph/) e dê dois cliques em **`ExecutarSoundGraph.bat`** (ou rode `cd aed3-soundgraph` e `dotnet run` no terminal).
+  3. O sistema iniciará automaticamente no navegador em **`http://localhost:5180`**. Veja o guia completo de testes e conceitos no [README do projeto](aed3-soundgraph/README.md).
 - **AED3 — Masmorra DFS em C#:** Entre em [`aed3-2bim-masmorra-dfs/`](aed3-2bim-masmorra-dfs/) e execute `dotnet run` (ou abra `ExecutarMasmorra.bat` no Windows após compilar). Veja as instruções completas no [README do projeto](aed3-2bim-masmorra-dfs/README.md).
 - **Demais projetos em C# (`Program.cs`):** Copie o `Program.cs` para um projeto Console .NET (`dotnet new console`) e execute com `dotnet run`.
 - **Projeto em C++ (`main.cpp`):** Compile com `g++ main.cpp -o grimoire` e execute `./grimoire`.
